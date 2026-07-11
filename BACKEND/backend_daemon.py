@@ -9,6 +9,7 @@ import win32service
 import win32event
 import servicemanager
 from datetime import datetime
+import win32timezone
 
 # Import your newly separated modules
 from backend_ipc import start_ipc_server, get_next_event_id
@@ -27,7 +28,7 @@ os.makedirs(ARCHIVE, exist_ok=True)
 
 logger = logging.getLogger("EDR")
 logger.setLevel(logging.INFO)
-MAX_SIZE = 10*1024
+MAX_SIZE = 1024*1024
 
 class DailySizeHandler(logging.Handler):
     def emit(self,record):

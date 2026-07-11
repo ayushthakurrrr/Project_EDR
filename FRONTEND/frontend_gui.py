@@ -9,7 +9,7 @@ import ctypes
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget, 
                              QSystemTrayIcon, QMenu, QPushButton, QHBoxLayout, 
                              QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QComboBox, QLabel, QStyle)
+                             QComboBox, QLabel, QStyle, QFrame, QTextEdit, QSplitter)
 from PyQt6.QtGui import QIcon, QAction, QColor, QFont
 from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt, QTimer
 
@@ -18,7 +18,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt, QTimer
 PIPE_NAME = r'\\.\pipe\SimpleEDRPipe1'
 PROGRAM_DATA = os.environ.get('PROGRAMDATA', r'C:\ProgramData')
 LOG_DIR = os.path.join(PROGRAM_DATA, "EdrAgent")
-LOG_FILE = os.path.join(LOG_DIR, "agent.log")
+# LOG_FILE = os.path.join(LOG_DIR, "agent.log")check now?check plz check plz once more once more
 
 def get_resource_path(relative_path):
     """ Safely get absolute path to resource, works for dev and for PyInstaller """
@@ -95,18 +95,21 @@ class MainWindow(QMainWindow):
 
         # Footer Status Bar
         self.footer_layout = QHBoxLayout()
-        self.status_label = QLabel("Daemon: 🔴 Stopped  |  Pipe: 🔴 Disconnected")
-        self.status_label.setStyleSheet("font-weight: bold; color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
+        # ... add your widgets to footer_layout ...
+        self.status_label = QLabel("Daemon: Stopped  |  Pipe: Disconnected")
+        self.status_label.setStyleSheet("font-weight: bold; font-size: 35px; color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
         self.alerts_label = QLabel("Total Alerts: 0")
         self.alerts_label.setStyleSheet("font-weight: bold; color: #ff7b72; background: #161b22; padding: 8px; border-radius: 6px;")
         self.hostname_label = QLabel(f"Host: {socket.gethostname()}")
         self.hostname_label.setStyleSheet("color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
-        
+
+
         self.footer_layout.addWidget(self.status_label)
         self.footer_layout.addStretch()
         self.footer_layout.addWidget(self.alerts_label)
         self.footer_layout.addWidget(self.hostname_label)
         main_layout.addLayout(self.footer_layout)
+        
 
     # SPECIFIC UPDATE: Intercepting the window close event to hide instead of exit
     def closeEvent(self, event):
@@ -115,6 +118,10 @@ class MainWindow(QMainWindow):
         ignore the quit command and just hide the window to the tray.
         """
         event.ignore()
+        # Wipes all current rows so you only see fresh events when reopened
+        if hasattr(self, 'live_table'):
+            self.live_table.setRowCount(0)
+        # --
         self.hide()
 
     def apply_modern_theme(self):
@@ -202,25 +209,63 @@ class MainWindow(QMainWindow):
 
     def update_connection_status(self, pipe_connected, daemon_running):
         if pipe_connected:
-            self.status_label.setText("Daemon: 🟢 Running  |  Pipe: 🟢 Connected")
+            self.status_label.setText("Daemon: Running  |  Pipe: Connected")
             self.status_label.setStyleSheet("font-weight: bold; color: #3fb950; background: #161b22; padding: 8px; border-radius: 6px;")
         elif daemon_running:
-            self.status_label.setText("Daemon: 🟢 Running  |  Pipe: 🔴 Disconnected")
+            self.status_label.setText("Daemon: Running  |  Pipe: Disconnected")
             self.status_label.setStyleSheet("font-weight: bold; color: #d29922; background: #161b22; padding: 8px; border-radius: 6px;")
         else:
-            self.status_label.setText("Daemon: 🔴 Stopped  |  Pipe: 🔴 Disconnected")
+            self.status_label.setText("Daemon: Stopped  |  Pipe: Disconnected")
             self.status_label.setStyleSheet("font-weight: bold; color: #ff7b72; background: #161b22; padding: 8px; border-radius: 6px;")
 
+    # def create_event_table(self):
+    #     table = QTableWidget(0, 5)
+    #     table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS"])
+    #     table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+    #     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+    #     table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+    #     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    #     table.setAlternatingRowColors(True)
+    #     table.setShowGrid(False)
+    #     return table
     def create_event_table(self):
         table = QTableWidget(0, 5)
         table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS"])
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        
+        # --- HORIZONTAL ---
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setColumnWidth(0, 150)
+        table.setColumnWidth(1, 80)
+        table.setColumnWidth(2, 180)
+        table.setColumnWidth(3, 250)
+
+        # --- VERTICAL (Fixes Cropping & S.No visibility) ---
+        table.verticalHeader().setVisible(True) # Show S.No
+        table.verticalHeader().setDefaultSectionSize(40) # Add breathing room for icons
+        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed) 
+        
+        table.setWordWrap(True)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
         table.setShowGrid(False)
         return table
+    
+    # def setup_live_tab(self):
+    #     layout = QVBoxLayout(self.live_tab)
+    #     layout.setContentsMargins(10, 10, 10, 10)
+        
+    #     control_layout = QHBoxLayout()
+    #     self.filter_dropdown = QComboBox()
+    #     self.filter_dropdown.addItems(["All Events", "High Severity Only"])
+    #     self.filter_dropdown.currentTextChanged.connect(self.apply_filter)
+    #     control_layout.addWidget(QLabel("FILTER EVENTS:"))
+    #     control_layout.addWidget(self.filter_dropdown)
+    #     control_layout.addStretch()
+    #     layout.addLayout(control_layout)
+
+    #     self.live_table = self.create_event_table()
+    #     layout.addWidget(self.live_table)
 
     def setup_live_tab(self):
         layout = QVBoxLayout(self.live_tab)
@@ -236,8 +281,87 @@ class MainWindow(QMainWindow):
         layout.addLayout(control_layout)
 
         self.live_table = self.create_event_table()
-        layout.addWidget(self.live_table)
+        self.live_table.itemClicked.connect(self.show_row_details)
 
+        # --- Build the Details Terminal Pane ---
+        self.live_terminal_frame = QFrame()
+        self.live_terminal_frame.setStyleSheet("""
+            QFrame {
+                background-color: #0d1117; 
+                border: 1px solid #30363d; 
+                border-radius: 5px;
+            }
+        """)
+        
+        terminal_layout = QVBoxLayout(self.live_terminal_frame)
+        terminal_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Top bar for the Close Button
+        close_btn_layout = QHBoxLayout()
+        close_btn_layout.addStretch()
+        
+        # We use a mathematical multiplication sign '×' because it is perfectly symmetrical,
+        # unlike a standard letter 'X' which is sometimes slightly taller than it is wide.
+        self.close_terminal_btn = QPushButton("X") 
+        
+        # Lock the size to a perfect square
+        self.close_terminal_btn.setFixedSize(24, 24)
+        
+        from PyQt6.QtCore import Qt
+        self.close_terminal_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        # The Master CSS
+        self.close_terminal_btn.setStyleSheet("""
+            QPushButton { 
+                background-color: #21262d; /* Subtle dark grey resting background */
+                color: #c9d1d9;            /* Crisp light grey cross */
+                border: 1px solid #30363d; /* Subtle border to give it depth */
+                border-radius: 12px;       /* Exactly half of 24px makes it a perfect circle */
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 16px;
+                font-weight: bold;
+                padding-bottom: 2px;       /* Nudges the '×' up just a pixel so it is perfectly centered */
+            } 
+            QPushButton:hover { 
+                background-color: #da3633; /* Danger Red */
+                color: #ffffff;            /* Pure white cross */
+                border: 1px solid #da3633;
+            }
+            QPushButton:pressed {
+                background-color: #b32d2a; /* Slightly darker red when actually clicked */
+            }
+        """)
+        self.close_terminal_btn.clicked.connect(self.live_terminal_frame.hide)
+
+        close_btn_layout.addWidget(self.close_terminal_btn)
+
+        self.terminal_text = QTextEdit()
+        self.terminal_text.setReadOnly(True)
+        # REMOVED: setFixedHeight(180). We want the splitter to control the height dynamically!
+        self.terminal_text.setStyleSheet("""
+            color: #79c0ff; 
+            font-family: Consolas, monospace; 
+            font-size: 13px; 
+            border: none;
+        """)
+
+        terminal_layout.addLayout(close_btn_layout)
+        terminal_layout.addWidget(self.terminal_text)
+
+        # --- NEW: Assemble the Splitter ---
+        # The QSplitter handles the draggable dividing line between the two widgets
+        self.main_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.main_splitter.addWidget(self.live_table)
+        self.main_splitter.addWidget(self.live_terminal_frame)
+        
+        # Tell the splitter how to share the space by default (e.g., Table 75%, Terminal 25%)
+        self.main_splitter.setSizes([750, 250])
+        
+        # Add the splitter to the main layout instead of adding the table and frame separately
+        layout.addWidget(self.main_splitter)
+        
+        self.live_terminal_frame.hide()
+        
     def setup_history_tab(self):
         layout = QVBoxLayout(self.history_tab)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -250,80 +374,182 @@ class MainWindow(QMainWindow):
         layout.addLayout(btn_layout)
 
         self.history_table = self.create_event_table()
-        layout.addWidget(self.history_table)
+        self.history_table.itemClicked.connect(self.show_row_details)
+
+        # --- Build the History Terminal Pane ---
+        self.history_terminal_frame = QFrame()
+        self.history_terminal_frame.setStyleSheet("QFrame { background-color: #0d1117; border: 1px solid #30363d; border-radius: 5px; }")
+        
+        terminal_layout = QVBoxLayout(self.history_terminal_frame)
+        terminal_layout.setContentsMargins(5, 5, 5, 5)
+
+        close_btn_layout = QHBoxLayout()
+        close_btn_layout.addStretch()
+        
+        self.close_history_btn = QPushButton("×") 
+        self.close_history_btn.setFixedSize(24, 24)
+        self.close_history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_history_btn.setStyleSheet("""
+            QPushButton { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 12px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 16px; font-weight: bold; padding-bottom: 2px; } 
+            QPushButton:hover { background-color: #da3633; color: #ffffff; border: 1px solid #da3633; }
+            QPushButton:pressed { background-color: #b32d2a; }
+        """)
+        self.close_history_btn.clicked.connect(self.history_terminal_frame.hide)
+        close_btn_layout.addWidget(self.close_history_btn)
+
+        self.history_terminal_text = QTextEdit()
+        self.history_terminal_text.setReadOnly(True)
+        self.history_terminal_text.setStyleSheet("color: #79c0ff; font-family: Consolas, monospace; font-size: 13px; border: none;")
+
+        terminal_layout.addLayout(close_btn_layout)
+        terminal_layout.addWidget(self.history_terminal_text)
+
+        # --- Splitter Setup ---
+        self.history_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.history_splitter.addWidget(self.history_table)
+        self.history_splitter.addWidget(self.history_terminal_frame)
+        self.history_splitter.setSizes([750, 250])
+        
+        layout.addWidget(self.history_splitter)
+        
+        self.history_terminal_frame.hide()
         self.load_history()
 
     def setup_softwares_tab(self):
-        # Assuming self.softwares_tab is already initialized in your main __init__
         layout = QVBoxLayout(self.softwares_tab)
         layout.setContentsMargins(10, 10, 10, 10)
         
-        # Add a refresh button layout at the top, matching the history tab style
         btn_layout = QHBoxLayout()
         self.refresh_softwares_btn = QPushButton("🔄 Refresh Installed Software")
-        self.refresh_softwares_btn.clicked.connect(self.load_softwares)
+        self.refresh_softwares_btn.setEnabled(False) 
         btn_layout.addWidget(self.refresh_softwares_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
-        # Initialize the table specifically for the 5 software attributes
         self.softwares_table = QTableWidget(0, 5)
-        self.softwares_table.setHorizontalHeaderLabels([
-            "Display Name", 
-            "Version", 
-            "Publisher", 
-            "Install Location", 
-            "Install Date"
-        ])
+        self.softwares_table.setHorizontalHeaderLabels(["Display Name", "Version", "Publisher", "Install Location", "Install Date"])
         
-        # Make the table look clean by stretching headers appropriately
-        from PyQt6.QtWidgets import QHeaderView # Ensure this is imported at the top
-        self.softwares_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch) # Name gets most space
+        self.softwares_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.softwares_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.softwares_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.softwares_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.softwares_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         
-        layout.addWidget(self.softwares_table)
-        
-        # Trigger initial load
-        self.load_softwares()
+        self.softwares_table.itemClicked.connect(self.show_row_details)
 
-    def load_softwares(self):
+        # --- Build the Software Terminal Pane ---
+        self.software_terminal_frame = QFrame()
+        self.software_terminal_frame.setStyleSheet("QFrame { background-color: #0d1117; border: 1px solid #30363d; border-radius: 5px; }")
+        
+        terminal_layout = QVBoxLayout(self.software_terminal_frame)
+        terminal_layout.setContentsMargins(5, 5, 5, 5)
+
+        close_btn_layout = QHBoxLayout()
+        close_btn_layout.addStretch()
+        
+        self.close_software_btn = QPushButton("×") 
+        self.close_software_btn.setFixedSize(24, 24)
+        self.close_software_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_software_btn.setStyleSheet("""
+            QPushButton { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 12px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 16px; font-weight: bold; padding-bottom: 2px; } 
+            QPushButton:hover { background-color: #da3633; color: #ffffff; border: 1px solid #da3633; }
+            QPushButton:pressed { background-color: #b32d2a; }
+        """)
+        self.close_software_btn.clicked.connect(self.software_terminal_frame.hide)
+        close_btn_layout.addWidget(self.close_software_btn)
+
+        self.software_terminal_text = QTextEdit()
+        self.software_terminal_text.setReadOnly(True)
+        self.software_terminal_text.setStyleSheet("color: #79c0ff; font-family: Consolas, monospace; font-size: 13px; border: none;")
+
+        terminal_layout.addLayout(close_btn_layout)
+        terminal_layout.addWidget(self.software_terminal_text)
+
+        # --- Splitter Setup ---
+        self.software_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.software_splitter.addWidget(self.softwares_table)
+        self.software_splitter.addWidget(self.software_terminal_frame)
+        self.software_splitter.setSizes([750, 250])
+        
+        layout.addWidget(self.software_splitter)
+        self.software_terminal_frame.hide()
+
+    def load_softwares(self, json_str):
         """Parses the JSON string from the backend and populates the Softwares table."""
         try:
-            # THIS is where 'event' comes from. It parses the JSON string into a Python dictionary.
-            # event = json.loads(json_str)
+            # 1. Parse the incoming string from the Named Pipe into a Python dictionary
+            event = json.loads(json_str)
             
-            # Clear the table before loading the new list so it doesn't duplicate endlessly
+            # 2. Clear the table before loading the new list so it doesn't duplicate endlessly
             self.softwares_table.setRowCount(0)
             
-            # Grab the list safely. If it's missing, default to an empty list [].
-            # installed_softwares = event.get("software_list", [])
+            # 3. Grab the list safely. If it's missing, default to an empty list [].
+            installed_softwares = event.get("software_list", [])
+            # print(installed_softwares)
             
-            # for software in installed_softwares:
-            #     row = self.softwares_table.rowCount()
-            #     self.softwares_table.insertRow(row)
+            # 4. Loop through the list and populate the UI table
+            # Inside your load_softwares function:
+            for software in installed_softwares:
+                row = self.softwares_table.rowCount()
+                self.softwares_table.insertRow(row)
                 
-            #     self.softwares_table.setItem(row, 0, QTableWidgetItem(software.get("display_name", "N/A")))
-            #     self.softwares_table.setItem(row, 1, QTableWidgetItem(software.get("version", "N/A")))
-            #     self.softwares_table.setItem(row, 2, QTableWidgetItem(software.get("publisher", "N/A")))
-            #     self.softwares_table.setItem(row, 3, QTableWidgetItem(software.get("install_location", "N/A")))
-            #     self.softwares_table.setItem(row, 4, QTableWidgetItem(software.get("install_date", "N/A")))
+                # --- NEW: Create the first item and inject the raw data ---
+                display_name_item = QTableWidgetItem(software.get("display_name", "N/A"))
+                # Dump the specific software dictionary back to a JSON string and save it to the row
+                display_name_item.setData(Qt.ItemDataRole.UserRole, json.dumps(software))
+                
+                self.softwares_table.setItem(row, 0, display_name_item)
+                
+                # The rest of your columns remain the same
+                self.softwares_table.setItem(row, 1, QTableWidgetItem(software.get("version", "N/A")))
+                self.softwares_table.setItem(row, 2, QTableWidgetItem(software.get("publisher", "N/A")))
+                self.softwares_table.setItem(row, 3, QTableWidgetItem(software.get("install_location", "N/A")))
+                self.softwares_table.setItem(row, 4, QTableWidgetItem(software.get("install_date", "N/A")))
                 
         except json.JSONDecodeError as e:
-            print(f"Failed to parse software JSON: {e}")
-        
+            print(f"Failed to parse software JSON: {e}")        
 
     def process_live_event(self, json_str):
         self.add_row_to_table(self.live_table, json_str)
 
+    # def load_history(self):
+    #     self.history_table.setRowCount(0)
+    #     if not os.path.exists(LOG_FILE):
+    #         return
+    #     try:
+    #         with open(LOG_FILE, 'r') as f:
+    #             for line in f:
+    #                 if " | " in line:
+    #                     json_str = line.split(" | ", 1)[1]
+    #                     self.add_row_to_table(self.history_table, json_str)
+    #                 elif line.startswith("{"):
+    #                     self.add_row_to_table(self.history_table, line)
+    #     except Exception as e:
+    #         print(f"Error loading history: {e}")
     def load_history(self):
+        """Dynamically finds and loads the most recent log file."""
         self.history_table.setRowCount(0)
-        if not os.path.exists(LOG_FILE):
+        
+        # 1. Dynamically scan the directory for the newest log file
+        current_log_file = None
+        if os.path.exists(LOG_DIR):
+            try:
+                # Find all files that look like agent logs
+                valid_logs = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR) if "agent" in f and "log" in f]
+                
+                if valid_logs:
+                    # Smart fetch: Grab the file with the most recent modification timestamp!
+                    current_log_file = max(valid_logs, key=os.path.getmtime)
+            except Exception as e:
+                print(f"Error finding dynamic log file: {e}")
+
+        # If no files exist yet, just exit cleanly
+        if not current_log_file or not os.path.exists(current_log_file):
             return
+            
+        # 2. Read the dynamically found file
         try:
-            with open(LOG_FILE, 'r') as f:
+            with open(current_log_file, 'r') as f:
                 for line in f:
                     if " | " in line:
                         json_str = line.split(" | ", 1)[1]
@@ -332,7 +558,7 @@ class MainWindow(QMainWindow):
                         self.add_row_to_table(self.history_table, line)
         except Exception as e:
             print(f"Error loading history: {e}")
-
+            
     def add_row_to_table(self, table, text):
         try:
             event = json.loads(text)
@@ -359,10 +585,25 @@ class MainWindow(QMainWindow):
                 if e_type == "UAC_DETECTED": 
                     bg_color = QColor("#3d3301") # Deep yellow
                     text_color = QColor("#e3b341")
-
-            proc_details = f"{event.get('process_name', 'N/A')} (PID: {event.get('pid', 'N/A')})"
-            if 'path' in event: proc_details += f"\nPath: {event.get('path')}"
-
+            
+            # proc_details = "N"
+            # # proc_details = f"{event.get('process_name', 'N/A')} (PID: {event.get('pid', 'N/A')})"
+            # if 'pid' in event: proc_details += f"\PID: {event.get('pid')}"
+            # elif 'process_name' in event: proc_details += f"\nPath: {event.get('process_name')}"
+            # elif 'path' in event: proc_details += f"\nPath: {event.get('path')}"
+            # else : proc_details = "N/A"
+            proc_details = " | ".join(
+            filter(
+                None,
+                [
+            f"PID: {event.get('pid')}" if event.get('pid') else "",
+            f"Path: {event.get('process_name', event.get('path'))}"
+            if event.get('process_name') or event.get('path')
+            else "",
+               ],
+             )
+            ) or "N/A"
+            if e_type == "DOWNLOAD_DETECTED" : print(proc_details)
             items = [
                 QTableWidgetItem(event.get("timestamp", "")),
                 QTableWidgetItem(severity),
@@ -378,14 +619,48 @@ class MainWindow(QMainWindow):
                     font = QFont()
                     font.setBold(True)
                     item.setFont(font)
+                
+                # --- NEW: Inject the raw JSON data securely into the first column ---
+                if col == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, text)
+
                 table.setItem(row, col, item)
 
-            table.scrollToBottom()
+            # table.scrollToBottom()
+
             if table == self.live_table:
                 self.apply_filter()
         except json.JSONDecodeError:
             pass
 
+    def show_row_details(self, item):
+        """Extracts the hidden JSON from the clicked row and shows the correct terminal."""
+        table = item.tableWidget()
+        row = item.row()
+        first_col_item = table.item(row, 0)
+
+        raw_json_str = first_col_item.data(Qt.ItemDataRole.UserRole)
+
+        if raw_json_str:
+            try:
+                parsed_json = json.loads(raw_json_str)
+                formatted_text = json.dumps(parsed_json, indent=4)
+            except json.JSONDecodeError:
+                formatted_text = raw_json_str
+
+            # Route to the correct tab's terminal UI
+            if table == getattr(self, 'live_table', None):
+                self.live_terminal_text.setText(formatted_text)
+                self.live_terminal_frame.show()
+                
+            elif table == getattr(self, 'history_table', None):
+                self.history_terminal_text.setText(formatted_text)
+                self.history_terminal_frame.show()
+                
+            elif table == getattr(self, 'softwares_table', None):
+                self.software_terminal_text.setText(formatted_text)
+                self.software_terminal_frame.show()
+                
     def apply_filter(self):
         filter_text = self.filter_dropdown.currentText()
         for row in range(self.live_table.rowCount()):
@@ -457,8 +732,31 @@ class SystemTrayApp(QObject):
         self.pipe_listener.connection_status.connect(self.update_pipe_status)
         self.pipe_listener.start()
 
+    import json
+
     def route_message(self, text):
-        self.main_window.process_live_event(text)
+        """
+        Acts as the main traffic cop for all incoming named pipe data.
+        Parses the JSON and routes it to the correct UI processing function.
+        """
+        try:
+            # 1. Parse the raw text string into a Python dictionary
+            event = json.loads(text)
+            event_type = event.get("type", "")
+
+            # print(event)
+            # 2. Check the type and route accordingly
+            if event_type == "SOFTWARE_LIST":
+                # Direct it to your new software tab handler
+                self.main_window.load_softwares(text)
+                
+            else:
+                # Send everything else (INSTALLER_DETECTED, NETWORK_CONNECTION, etc.) 
+                # to the original live event processor
+                self.main_window.process_live_event(text)
+
+        except json.JSONDecodeError:
+            print(f"Received malformed text over the pipe that wasn't valid JSON: {text}")
 
     def poll_daemon_status(self):
         """Dynamically checks if the backend daemon is alive."""

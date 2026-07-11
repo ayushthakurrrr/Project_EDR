@@ -1,6 +1,7 @@
 import time ,wmi,os
 import pythoncom ,psutil, winreg
 import hashlib,shutil,tempfile,sqlite3
+import win32api #registry sensor 
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -84,6 +85,7 @@ def start_network_monitor():
     
     while True:
         try:
+            current_snapshot = set() # FIX 2: Create a fresh snapshot every loop
             connections = psutil.net_connections(kind='tcp')
             allow_list = get_allow_list()
             
@@ -95,6 +97,8 @@ def start_network_monitor():
                         continue
                         
                     conn_key = (conn.pid, remote_ip, remote_port)
+                    current_snapshot.add(conn_key) # FIX 2: Add alive connection to snapshot
+                    
                     
                     if conn_key not in known_connections:
                         known_connections.add(conn_key)
@@ -123,6 +127,8 @@ def start_network_monitor():
                         
                         event_queue.put(payload)
                         write_to_log_file(payload)
+            # FIX 2: Overwrite old cache with current snapshot. Drops dead connections instantly!
+            known_connections = current_snapshot
                         
         except Exception as e:
             debug_log(f"Network Monitor encountered an error: {e}")
@@ -132,6 +138,10 @@ def start_network_monitor():
 def start_registry_monitor():
     """Background worker that watches for changes in startup Registry keys."""
     debug_log("Initializing Registry Persistence Monitor...")
+
+        # FIX 3: Define OS constants missing from pywin32
+    REG_NOTIFY_CHANGE_NAME = 0x00000001
+    REG_NOTIFY_CHANGE_LAST_SET = 0x00000004
     
     run_key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
     
@@ -148,13 +158,37 @@ def start_registry_monitor():
 
     baseline = get_run_keys()
 
+        # FIX 3: Open handle to the key with NOTIFY permissions
+    try:
+        hKey = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE, 
+            run_key_path, 
+            0, 
+            winreg.KEY_READ | winreg.KEY_NOTIFY
+        )
+    except Exception as e:
+        debug_log(f"Failed to open registry key for monitoring: {e}")
+        return
+
     while True:
-        time.sleep(5)
-        current_keys = get_run_keys()
+        # time.sleep(5)
+        # FIX 3: Use RegNotifyChangeKeyValue to wait for changes
+        try:
+            # FIX 3: Blocking API Call. 0% CPU usage. Only wakes up when the OS detects a change.
+            win32api.RegNotifyChangeKeyValue(
+                hKey, 
+                True, 
+                REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET, 
+                None, 
+                False
+            )
+
+      
+            current_keys = get_run_keys()
         
-        for name, value in current_keys.items():
-            if name not in baseline or baseline[name] != value:
-                payload = {
+            for name, value in current_keys.items():
+                 if name not in baseline or baseline[name] != value:
+                     payload = {
                     "event_id": get_next_event_id(),
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "type": "PERSISTENCE_DETECTED",
@@ -164,10 +198,17 @@ def start_registry_monitor():
                     "message": f"Suspicious Registry Run key added: {name} -> {value}"
                 }
                 
-                event_queue.put(payload)
-                write_to_log_file(payload)
-                baseline[name] = value
+                     event_queue.put(payload)
+                     write_to_log_file(payload)
 
+                     # FIX 3: Update baseline for the next differential check
+                     baseline = current_keys
+        except Exception as e:
+            debug_log(f"Registry Monitor encountered an error: {e}")
+            time.sleep(5) # Fallback to prevent crash loops
+
+
+ 
 class DownloadHandler(FileSystemEventHandler):
     def on_created(self, event):
 
@@ -212,7 +253,7 @@ class DownloadHandler(FileSystemEventHandler):
     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
     "type": "DOWNLOAD_DETECTED",
     "file_name": os.path.basename(path),
-    "file_path": path,
+    "path": path,
     "file_size": size,
     "sha256": hash_value,
     "zone_data":zone,
@@ -324,6 +365,7 @@ def start_software_monitor():
     }
     
     event_queue.put(payload)
+    # write_to_log_file(payload)
     
     
 
