@@ -219,7 +219,7 @@ class DownloadHandler(FileSystemEventHandler):
     "network_connections" :len(psutil.net_connections("inet")),
     "message": f"Downloaded file detected: {os.path.basename(path)}"
         }
-        print(payload)
+      
         event_queue.put(payload)
         write_to_log_file(payload)
 
@@ -257,3 +257,73 @@ def start_file_monitor():
         except:
             pass
     
+def start_software_monitor():
+    debug_log("Initializing Software Monitor...")
+    UNINSTALL_PATHS = [
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+    ]
+    
+    software_list = []
+    for path in UNINSTALL_PATHS:
+        root = winreg.HKEY_LOCAL_MACHINE
+
+        try:
+            key = winreg.OpenKey(root,path)
+            
+        except FileNotFoundError:
+            continue
+
+        i = 0
+        while True:
+            try:
+                subkey_name = winreg.EnumKey(key,i)
+
+                subkey_path = path+"\\"+subkey_name
+                try:
+                    subkey = winreg.OpenKey(root,subkey_path)
+                    
+
+                except FileNotFoundError:
+                    i+=1
+                    continue    
+                    
+                
+                def get_value(name):
+                    try:
+                        value, _ = winreg.QueryValueEx(subkey,name)
+                        return value
+                    except FileNotFoundError:
+                        return None    
+                
+                display_name = get_value("DisplayName")
+                
+                if display_name:
+                    software = {
+                        "display_name" : display_name,
+                        "version" : get_value("DisplayVersion"),
+                        "publisher" : get_value("Publisher"),
+                        "install_location" : get_value("InstallLocation"),
+                        "install_date":get_value("InstallDate"),
+                    }
+                    software_list.append(software)
+
+                winreg.CloseKey(subkey)
+
+            except OSError:
+                break
+
+            i+=1
+        winreg.CloseKey(key)
+    print(f"Discovered {len(software_list)} installed applications.")
+    
+    # Format the payload EXACTLY how the GUI router expects it
+    payload = {
+        "type": "SOFTWARE_LIST",
+        "software_list": software_list
+    }
+    
+    event_queue.put(payload)
+    
+    
+

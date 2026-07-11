@@ -10,16 +10,14 @@ import win32event
 import servicemanager
 from datetime import datetime
 
-# for logging
-from logging.handlers import RotatingFileHandler
-
 # Import your newly separated modules
 from backend_ipc import start_ipc_server, get_next_event_id
 from backend_telemetry import (
     start_wmi_monitor, 
     start_file_monitor, 
     start_network_monitor, 
-    start_registry_monitor
+    start_registry_monitor,
+    start_software_monitor
 )
 
 # Define paths and logging
@@ -27,25 +25,46 @@ BASE = os.path.join(os.getenv("PROGRAMDATA", r"C:\ProgramData"), "EdrAgent")
 ARCHIVE = os.path.join(BASE, "archive")
 os.makedirs(ARCHIVE, exist_ok=True)
 
-LOG = os.path.join(BASE, "agent.log")
-
 logger = logging.getLogger("EDR")
 logger.setLevel(logging.INFO)
+MAX_SIZE = 10*1024
 
-h = RotatingFileHandler(LOG, maxBytes=10 *1024* 1024, backupCount=10) #10 MB
+class DailySizeHandler(logging.Handler):
+    def emit(self,record):
+        try:
+            date = datetime.now().strftime("%Y-%m-%d")
+            log_file = os.path.join(BASE,f"agent_{date}.log")
+
+            if os.path.exists(log_file) and os.path.getsize(log_file) >= MAX_SIZE:
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                rotated = os.path.join(BASE,f"agent_{timestamp}.log")
+                
+                if not os.path.exists(rotated):
+                    os.rename(log_file,rotated)
+            with open(log_file,"a",encoding="utf-8") as f:
+                f.write(self.format(record)+"\n")
+        except Exception:
+            self.handleError(record)
+
+h = DailySizeHandler()
 h.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 logger.addHandler(h)
 
-
 def archive_logs():
     """Archives old logs into a zip file to save space."""
-    logs = sorted(f for f in os.listdir(BASE) if f.startswith("agent.log."))
-    if len(logs) > 3:
+    logs = sorted(
+        [
+            f for f in os.listdir(BASE) 
+             if f.startswith("agent_") and f.endswith(".log")
+        ],
+        key=lambda f:os.path.getmtime(os.path.join(BASE,f))
+        )
+    
+    if len(logs) > 7:
         # Generate the timestamp dynamically when the zip is created
-        today_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        zip_name = os.path.join(ARCHIVE, f"old_logs_{today_str}.zip")
-        with zipfile.ZipFile(zip_name, "a", zipfile.ZIP_DEFLATED) as z:
-            for f in logs[3:]:
+        zip_name = os.path.join(ARCHIVE, f"old_logs_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.zip")
+        with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in logs[:-7]:
                 p = os.path.join(BASE, f)
                 z.write(p, f)
                 os.remove(p)
@@ -91,7 +110,7 @@ class EDRService(win32serviceutil.ServiceFramework):
         threading.Thread(target=start_network_monitor, daemon=True).start()
         threading.Thread(target=start_registry_monitor, daemon=True).start()
         threading.Thread(target=start_file_monitor, daemon=True).start()
-
+        threading.Thread(target=start_software_monitor, daemon=True).start()
         # Keep service running until stopped
         win32event.WaitForSingleObject(self.hWaitStop, win32event.INFINITE)
 
@@ -105,7 +124,8 @@ def run_standalone():
     threading.Thread(target=start_network_monitor, daemon=True).start()
     threading.Thread(target=start_registry_monitor, daemon=True).start()
     threading.Thread(target=start_file_monitor, daemon=True).start()
-
+    threading.Thread(target=start_software_monitor, daemon=True).start()
+     
     # Keep script alive
     while True:
         time.sleep(1)
