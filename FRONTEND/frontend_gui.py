@@ -218,16 +218,6 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Daemon: Stopped  |  Pipe: Disconnected")
             self.status_label.setStyleSheet("font-weight: bold; color: #ff7b72; background: #161b22; padding: 8px; border-radius: 6px;")
 
-    # def create_event_table(self):
-    #     table = QTableWidget(0, 5)
-    #     table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS"])
-    #     table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-    #     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-    #     table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-    #     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-    #     table.setAlternatingRowColors(True)
-    #     table.setShowGrid(False)
-    #     return table
     def create_event_table(self):
         table = QTableWidget(0, 5)
         table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS"])
@@ -250,22 +240,6 @@ class MainWindow(QMainWindow):
         table.setAlternatingRowColors(True)
         table.setShowGrid(False)
         return table
-    
-    # def setup_live_tab(self):
-    #     layout = QVBoxLayout(self.live_tab)
-    #     layout.setContentsMargins(10, 10, 10, 10)
-        
-    #     control_layout = QHBoxLayout()
-    #     self.filter_dropdown = QComboBox()
-    #     self.filter_dropdown.addItems(["All Events", "High Severity Only"])
-    #     self.filter_dropdown.currentTextChanged.connect(self.apply_filter)
-    #     control_layout.addWidget(QLabel("FILTER EVENTS:"))
-    #     control_layout.addWidget(self.filter_dropdown)
-    #     control_layout.addStretch()
-    #     layout.addLayout(control_layout)
-
-    #     self.live_table = self.create_event_table()
-    #     layout.addWidget(self.live_table)
 
     def setup_live_tab(self):
         layout = QVBoxLayout(self.live_tab)
@@ -302,25 +276,25 @@ class MainWindow(QMainWindow):
         
         # We use a mathematical multiplication sign '×' because it is perfectly symmetrical,
         # unlike a standard letter 'X' which is sometimes slightly taller than it is wide.
-        self.close_terminal_btn = QPushButton("X") 
+        self.close_terminal_btn = QPushButton("×") 
         
         # Lock the size to a perfect square
         self.close_terminal_btn.setFixedSize(24, 24)
         
-        from PyQt6.QtCore import Qt
         self.close_terminal_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # The Master CSS
         self.close_terminal_btn.setStyleSheet("""
             QPushButton { 
-                background-color: #21262d; /* Subtle dark grey resting background */
-                color: #c9d1d9;            /* Crisp light grey cross */
-                border: 1px solid #30363d; /* Subtle border to give it depth */
-                border-radius: 12px;       /* Exactly half of 24px makes it a perfect circle */
-                font-family: 'Segoe UI', Arial, sans-serif;
-                font-size: 16px;
-                font-weight: bold;
-                padding-bottom: 2px;       /* Nudges the '×' up just a pixel so it is perfectly centered */
+                background-color: #21262d; 
+                color: #c9d1d9;            
+                border: 1px solid #30363d; 
+                border-radius: 12px;       
+                font-family: Arial, sans-serif;
+                font-size: 14px;           /* Reduced slightly to guarantee fit */
+                font-weight: 900;          
+                padding: 0px;              /* THE FIX: Ignore global padding */
+                margin: 0px;      /* Nudges the '×' up just a pixel so it is perfectly centered */
             } 
             QPushButton:hover { 
                 background-color: #da3633; /* Danger Red */
@@ -335,10 +309,10 @@ class MainWindow(QMainWindow):
 
         close_btn_layout.addWidget(self.close_terminal_btn)
 
-        self.terminal_text = QTextEdit()
-        self.terminal_text.setReadOnly(True)
+        self.live_terminal_text = QTextEdit()
+        self.live_terminal_text.setReadOnly(True)
         # REMOVED: setFixedHeight(180). We want the splitter to control the height dynamically!
-        self.terminal_text.setStyleSheet("""
+        self.live_terminal_text.setStyleSheet("""
             color: #79c0ff; 
             font-family: Consolas, monospace; 
             font-size: 13px; 
@@ -346,7 +320,7 @@ class MainWindow(QMainWindow):
         """)
 
         terminal_layout.addLayout(close_btn_layout)
-        terminal_layout.addWidget(self.terminal_text)
+        terminal_layout.addWidget(self.live_terminal_text)
 
         # --- NEW: Assemble the Splitter ---
         # The QSplitter handles the draggable dividing line between the two widgets
