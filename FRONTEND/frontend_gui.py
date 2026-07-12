@@ -592,7 +592,6 @@ class MainWindow(QMainWindow):
                ],
              )
             ) or "N/A"
-            if e_type == "DOWNLOAD_DETECTED" : print(proc_details)
             items = [
                 QTableWidgetItem(event.get("timestamp", "")),
                 QTableWidgetItem(severity),

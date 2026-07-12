@@ -5,6 +5,7 @@ import win32api #registry sensor
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import glob
 
 # Import shared resources from your upcoming utilities file
 from backend_ipc import (
@@ -264,40 +265,45 @@ class DownloadHandler(FileSystemEventHandler):
         event_queue.put(payload)
         write_to_log_file(payload)
 
+
+
 def start_file_monitor():
     """Background worker that monitors the Downloads folder for newly downloaded files."""
     debug_log("Initializing File Download Monitor...")
 
     try:
-        download_folder = os.path.join(os.environ["USERPROFILE"], "Downloads")
+        # 1. Find all legitimate human user download folders on the machine
+        download_folders = []
+        for user_dir in glob.glob("C:\\Users\\*"):
+            # Skip Windows default/system profiles
+            if not user_dir.endswith(("Public", "Default", "Default User", "All Users")):
+                target_path = os.path.join(user_dir, "Downloads")
+                if os.path.exists(target_path):
+                    download_folders.append(target_path)
 
-        if not os.path.exists(download_folder):
-            debug_log(f"Downloads folder not found: {download_folder}")
+        if not download_folders:
+            debug_log("No active user Downloads folders found to monitor.")
             return
 
         observer = Observer()
-        observer.schedule(
-            DownloadHandler(),
-            download_folder,
-            recursive=False
-        )
+        
+        # 2. Schedule the watchdog handler for EVERY user's download directory
+        for folder in download_folders:
+            observer.schedule(
+                DownloadHandler(),
+                folder,
+                recursive=False
+            )
+            debug_log(f"Watching folder: {folder}")
 
         observer.start()
-        debug_log(f"Watching folder: {download_folder}")
 
         while True:
             time.sleep(1)
-
+            
     except Exception as e:
-        debug_log(f"File Monitor encountered an error: {e}")
+        debug_log(f"Error in file monitor: {str(e)}") 
 
-    finally:
-        try:
-            observer.stop()
-            observer.join()
-        except:
-            pass
-    
 def start_software_monitor():
     debug_log("Initializing Software Monitor...")
     UNINSTALL_PATHS = [

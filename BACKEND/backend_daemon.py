@@ -131,11 +131,7 @@ def run_standalone():
     while True:
         time.sleep(1)
 
-# if __name__ == '__main__':
-#     if "--test" in sys.argv:
-#         run_standalone()
-#     else:
-#         win32serviceutil.HandleCommandLine(EDRService)
+
 
 
 if __name__ == '__main__':
