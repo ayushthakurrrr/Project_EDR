@@ -81,8 +81,8 @@ def archive_worker():
 
 # Service_wrapper_class
 class EDRService(win32serviceutil.ServiceFramework):
-    _svc_name_ = "SimpleEDR 1"
-    _svc_display_name_ = "Simple EDR Daemon 1"
+    _svc_name_ = "SimpleEDR1"
+    _svc_display_name_ = "Simple EDR Daemon_1"
     _svc_description_ = "Background telemetry engine for EDR"
 
     def __init__(self, args):
@@ -131,8 +131,31 @@ def run_standalone():
     while True:
         time.sleep(1)
 
+# if __name__ == '__main__':
+#     if "--test" in sys.argv:
+#         run_standalone()
+#     else:
+#         win32serviceutil.HandleCommandLine(EDRService)
+
+
 if __name__ == '__main__':
+    # 1. VS Code Test Mode
     if "--test" in sys.argv:
         run_standalone()
+        
+    # 2. Windows Service Control Manager Booting (No Arguments)
+    elif len(sys.argv) == 1:
+        import servicemanager
+        import win32serviceutil
+        import sys
+        import os
+        
+        # PyInstaller strictly requires this initialization to talk to Windows SCM
+        servicemanager.Initialize()
+        servicemanager.PrepareToHostSingle(EDRService)
+        servicemanager.StartServiceCtrlDispatcher()
+        
+    # 3. Inno Setup Installer running 'install' or 'remove'
     else:
+        import win32serviceutil
         win32serviceutil.HandleCommandLine(EDRService)

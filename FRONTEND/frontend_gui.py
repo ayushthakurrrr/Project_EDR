@@ -55,7 +55,7 @@ class PipeListener(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Shield EDR | Enterprise Dashboard")
+        self.setWindowTitle("EDR Agent Dashboard")
         self.resize(1000, 650)
         self.total_alerts = 0
 
@@ -70,7 +70,7 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(15)
 
         # Header Title
-        header_label = QLabel("ENDPOINT SENSOR DASHBOARD")
+        header_label = QLabel("EDR AGENT DASHBOARD")
         header_label.setStyleSheet("font-size: 22px; font-weight: bold; color: #58a6ff; letter-spacing: 2px;")
         main_layout.addWidget(header_label)
 
@@ -639,9 +639,9 @@ class MainWindow(QMainWindow):
 
             # Route to the correct tab's terminal UI
             if table == getattr(self, 'live_table', None):
-                # self.live_terminal_text.setText(formatted_text)
+                self.live_terminal_text.setText(formatted_text)
                 #changed live_terminal_text to terminal_text to fix the issue of not showing the details in the live tab and crashing the app
-                self.terminal_text.setText(formatted_text)
+                # self.terminal_text.setText(formatted_text)
                 
                 self.live_terminal_frame.show()
                 
@@ -782,8 +782,8 @@ class SystemTrayApp(QObject):
             svc_running = "RUNNING" in svc_result.stdout
             
             # Fallback: Task manager check
-            task_result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq daemon.exe"], capture_output=True, text=True, creationflags=0x08000000)
-            proc_running = "daemon.exe" in task_result.stdout
+            task_result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq EDRAgentSERVICE.exe"], capture_output=True, text=True, creationflags=0x08000000)
+            proc_running = "EDRAgentSERVICE.exe" in task_result.stdout
 
             self.is_daemon_running = svc_running or proc_running
         except Exception:
