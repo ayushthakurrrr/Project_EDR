@@ -142,20 +142,12 @@ if __name__ == '__main__':
     # 1. VS Code Test Mode
     if "--test" in sys.argv:
         run_standalone()
-        
-    # 2. Windows Service Control Manager Booting (No Arguments)
+
     elif len(sys.argv) == 1:
-        import servicemanager
-        import win32serviceutil
-        import sys
-        import os
-        
-        # PyInstaller strictly requires this initialization to talk to Windows SCM
         servicemanager.Initialize()
         servicemanager.PrepareToHostSingle(EDRService)
         servicemanager.StartServiceCtrlDispatcher()
-        
-    # 3. Inno Setup Installer running 'install' or 'remove'
+
     else:
         import win32serviceutil
         win32serviceutil.HandleCommandLine(EDRService)
