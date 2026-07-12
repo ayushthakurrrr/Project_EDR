@@ -134,5 +134,11 @@ def run_standalone():
 if __name__ == '__main__':
     if "--test" in sys.argv:
         run_standalone()
+
+    elif len(sys.argv) == 1:
+        servicemanager.Initialize()
+        servicemanager.PrepareToHostSingle(EDRService)
+        servicemanager.StartServiceCtrlDispatcher()
+
     else:
         win32serviceutil.HandleCommandLine(EDRService)
