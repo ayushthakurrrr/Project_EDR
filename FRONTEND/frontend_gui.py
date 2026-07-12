@@ -81,7 +81,7 @@ class MainWindow(QMainWindow):
         # Tab 1: Live Telemetry
         self.live_tab = QWidget()
         self.setup_live_tab()
-        self.tabs.addTab(self.live_tab, "🔴 Live Stream")
+        self.tabs.addTab(self.live_tab, " Live Stream")
 
         # Tab 2: Softwares
         self.softwares_tab = QWidget()
@@ -218,16 +218,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Daemon: Stopped  |  Pipe: Disconnected")
             self.status_label.setStyleSheet("font-weight: bold; color: #ff7b72; background: #161b22; padding: 8px; border-radius: 6px;")
 
-    # def create_event_table(self):
-    #     table = QTableWidget(0, 5)
-    #     table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS"])
-    #     table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-    #     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-    #     table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-    #     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-    #     table.setAlternatingRowColors(True)
-    #     table.setShowGrid(False)
-    #     return table
+    
     def create_event_table(self):
         table = QTableWidget(0, 5)
         table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS"])
@@ -273,7 +264,7 @@ class MainWindow(QMainWindow):
         
         control_layout = QHBoxLayout()
         self.filter_dropdown = QComboBox()
-        self.filter_dropdown.addItems(["All Events", "High Severity Only"])
+        self.filter_dropdown.addItems(["All Events", "High Severity", "Medium Severity", "Low Severity"])
         self.filter_dropdown.currentTextChanged.connect(self.apply_filter)
         control_layout.addWidget(QLabel("FILTER EVENTS:"))
         control_layout.addWidget(self.filter_dropdown)
@@ -429,11 +420,15 @@ class MainWindow(QMainWindow):
         self.softwares_table = QTableWidget(0, 5)
         self.softwares_table.setHorizontalHeaderLabels(["Display Name", "Version", "Publisher", "Install Location", "Install Date"])
         
-        self.softwares_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.softwares_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.softwares_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.softwares_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.softwares_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        # --- HORIZONTAL ADJUSTMENT ---
+        self.softwares_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.softwares_table.horizontalHeader().setStretchLastSection(True)
+        
+        self.softwares_table.setColumnWidth(0, 250)  # Display Name
+        self.softwares_table.setColumnWidth(1, 120)  # Version
+        self.softwares_table.setColumnWidth(2, 180)  # Publisher
+        self.softwares_table.setColumnWidth(3, 300)  # Install Location
+        # Column 4 (Install Date) will automatically fill the remaining space
         
         self.softwares_table.itemClicked.connect(self.show_row_details)
 
@@ -504,7 +499,18 @@ class MainWindow(QMainWindow):
                 self.softwares_table.setItem(row, 1, QTableWidgetItem(software.get("version", "N/A")))
                 self.softwares_table.setItem(row, 2, QTableWidgetItem(software.get("publisher", "N/A")))
                 self.softwares_table.setItem(row, 3, QTableWidgetItem(software.get("install_location", "N/A")))
-                self.softwares_table.setItem(row, 4, QTableWidgetItem(software.get("install_date", "N/A")))
+                # --- INSTALL DATE FORMATTING LOGIC ---
+                raw_date = software.get("install_date", "")
+                display_date = "N/A"
+                
+                if raw_date:
+                    # Windows registry dates are often YYYYMMDD (exactly 8 digits)
+                    if len(raw_date) == 8 and raw_date.isdigit():
+                        display_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+                    else:
+                        display_date = raw_date # Keep as-is if it's already formatted
+
+                self.softwares_table.setItem(row, 4, QTableWidgetItem(display_date))
                 
         except json.JSONDecodeError as e:
             print(f"Failed to parse software JSON: {e}")        
@@ -650,7 +656,10 @@ class MainWindow(QMainWindow):
 
             # Route to the correct tab's terminal UI
             if table == getattr(self, 'live_table', None):
-                self.live_terminal_text.setText(formatted_text)
+                # self.live_terminal_text.setText(formatted_text)
+                #changed live_terminal_text to terminal_text to fix the issue of not showing the details in the live tab and crashing the app
+                self.terminal_text.setText(formatted_text)
+                
                 self.live_terminal_frame.show()
                 
             elif table == getattr(self, 'history_table', None):
@@ -661,15 +670,38 @@ class MainWindow(QMainWindow):
                 self.software_terminal_text.setText(formatted_text)
                 self.software_terminal_frame.show()
                 
+    # def apply_filter(self):
+    #     filter_text = self.filter_dropdown.currentText()
+    #     for row in range(self.live_table.rowCount()):
+    #         item = self.live_table.item(row, 1)
+    #         if item:
+    #             if filter_text == "High Severity Only" and item.text() != "High":
+    #                 self.live_table.setRowHidden(row, True)
+    #             else:
+    #                 self.live_table.setRowHidden(row, False)
+
     def apply_filter(self):
         filter_text = self.filter_dropdown.currentText()
+        # print(f"[DEBUG] Applying filter: {filter_text}") # Uncomment this to debug if needed
+        
         for row in range(self.live_table.rowCount()):
-            item = self.live_table.item(row, 1)
+            item = self.live_table.item(row, 1) # Column 1 is SEVERITY
+            
             if item:
-                if filter_text == "High Severity Only" and item.text() != "High":
-                    self.live_table.setRowHidden(row, True)
-                else:
-                    self.live_table.setRowHidden(row, False)
+                # .strip().lower() removes trailing spaces and makes it case-insensitive to prevent mismatch errors
+                severity_text = item.text().strip().lower() 
+                hide_row = False
+                
+                if filter_text == "All Events":
+                    hide_row = False
+                elif filter_text == "High Severity Only" and severity_text != "high":
+                    hide_row = True
+                elif filter_text == "Medium Severity Only" and severity_text != "medium":
+                    hide_row = True
+                elif filter_text == "Low Severity Only" and severity_text != "low":
+                    hide_row = True
+
+                self.live_table.setRowHidden(row, hide_row)
 
 class SystemTrayApp(QObject):
     def __init__(self, app):
@@ -684,19 +716,20 @@ class SystemTrayApp(QObject):
 
         self.main_window = MainWindow()
         self.tray = QSystemTrayIcon(self.app)
-
-        icon_path = get_resource_path(os.path.join("Assets", "guard.ico"))
-        if os.path.exists(icon_path):
-            self.icon = QIcon(icon_path)
-        else:
-            self.icon = self.app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        self.tray.setToolTip("EDR Guard")
         
-        self.app.setWindowIcon(self.icon)
-        self.tray.setIcon(self.icon)
-        self.tray.setToolTip("Shield EDR Engine")
+        # 2. Safely get the icon path for PyInstaller using the new function
+        icon_path = get_resource_path(os.path.join("assets", "guard.ico"))
+        
+        if os.path.exists(icon_path):
+            guard_icon = QIcon(icon_path)
+            self.tray.setIcon(guard_icon)
+            self.app.setWindowIcon(guard_icon) # Sets the Taskbar and Window Icon
+        else:
+            self.tray.setIcon(app.style().standardIcon(app.style().StandardPixmap.SP_ComputerIcon))
         
         self.menu = QMenu()
-        
+
         self.daemon_status_action = QAction("Daemon: 🔴 Stopped", self)
         self.daemon_status_action.setEnabled(False)
         self.menu.addAction(self.daemon_status_action)
