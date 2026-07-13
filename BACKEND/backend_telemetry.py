@@ -209,7 +209,6 @@ def start_registry_monitor():
             time.sleep(5) # Fallback to prevent crash loops
 
 
- 
 class DownloadHandler(FileSystemEventHandler):
     def on_created(self, event):
 

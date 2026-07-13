@@ -1,0 +1,13 @@
+# GUI Framework
+PyQt6
+
+# System Monitoring & Interactions
+psutil
+WMI
+watchdog
+
+# Windows API & Services (covers win32file, win32api, win32service, etc.)
+pywin32
+
+# Build Tools
+pyinstaller

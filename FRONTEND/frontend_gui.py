@@ -501,20 +501,6 @@ class MainWindow(QMainWindow):
     def process_live_event(self, json_str):
         self.add_row_to_table(self.live_table, json_str)
 
-    # def load_history(self):
-    #     self.history_table.setRowCount(0)
-    #     if not os.path.exists(LOG_FILE):
-    #         return
-    #     try:
-    #         with open(LOG_FILE, 'r') as f:
-    #             for line in f:
-    #                 if " | " in line:
-    #                     json_str = line.split(" | ", 1)[1]
-    #                     self.add_row_to_table(self.history_table, json_str)
-    #                 elif line.startswith("{"):
-    #                     self.add_row_to_table(self.history_table, line)
-    #     except Exception as e:
-    #         print(f"Error loading history: {e}")
     def load_history(self):
         """Dynamically finds and loads the most recent log file."""
         self.history_table.setRowCount(0)
@@ -651,16 +637,6 @@ class MainWindow(QMainWindow):
             elif table == getattr(self, 'softwares_table', None):
                 self.software_terminal_text.setText(formatted_text)
                 self.software_terminal_frame.show()
-                
-    # def apply_filter(self):
-    #     filter_text = self.filter_dropdown.currentText()
-    #     for row in range(self.live_table.rowCount()):
-    #         item = self.live_table.item(row, 1)
-    #         if item:
-    #             if filter_text == "High Severity Only" and item.text() != "High":
-    #                 self.live_table.setRowHidden(row, True)
-    #             else:
-    #                 self.live_table.setRowHidden(row, False)
 
     def apply_filter(self):
         filter_text = self.filter_dropdown.currentText()
