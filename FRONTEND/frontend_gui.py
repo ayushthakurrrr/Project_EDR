@@ -13,6 +13,28 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
 from PyQt6.QtGui import QIcon, QAction, QColor, QFont
 from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt, QTimer
 
+import win32event
+import win32api
+import winerror
+
+
+import sys
+import win32event
+import win32api
+import winerror
+
+
+MUTEX_NAME = "Local\\EDR_Shield_Frontend_Mutex_v2"
+
+# 1. Ask Windows for the lock and attach it to a root-level variable
+APP_MUTEX = win32event.CreateMutex(None, False, MUTEX_NAME)
+
+# 2. Check IMMEDIATELY if Windows says "Someone else already has this"
+if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+    print("FATAL: Another instance is already running. Exiting instantly.")
+    sys.exit(0)
+
+
 
 # SPECIFIC UPDATE: Pipe name updated to SimpleEDRPipe1
 PIPE_NAME = r'\\.\pipe\SimpleEDRPipe1'

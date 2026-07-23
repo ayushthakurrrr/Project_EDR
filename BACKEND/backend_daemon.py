@@ -106,7 +106,7 @@ class EDRService(win32serviceutil.ServiceFramework):
         threading.Thread(target=start_ipc_server, daemon=True).start()
         threading.Thread(target=archive_worker, daemon=True).start()
 
-        # 2. Start Data Engines (Your Monitors & Raj's File Monitor)
+        # 2. Start Data Engines (Dev's Monitors & Raj's File Monitor)
         threading.Thread(target=start_wmi_monitor, daemon=True).start()
         threading.Thread(target=start_network_monitor, daemon=True).start()
         threading.Thread(target=start_registry_monitor, daemon=True).start()
