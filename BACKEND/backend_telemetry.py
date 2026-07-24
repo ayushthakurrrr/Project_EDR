@@ -380,5 +380,70 @@ def start_software_monitor(event_queue=None):
     
     return payload
     
+#start _system_monitor and user session monitor 
+def start_system_monitor():
+    """Background worker that logs system boot time and monitors user session switches/logins."""
+    debug_log("Initializing System & User Session Monitor...")
     
+    # 1. Capture and log System Boot Time once on startup
+    try:
+        boot_timestamp = psutil.boot_time()
+        boot_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(boot_timestamp))
+        
+        boot_payload = {
+            "event_id": get_next_event_id(),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "type": "SYSTEM_BOOT_INFO",
+            "boot_time": boot_time_str,
+            "message": f"System last booted at {boot_time_str}"
+        }
+        
+        event_queue.put(boot_payload)
+        write_to_log_file(boot_payload)
+    except Exception as e:
+        debug_log(f"Error reading system boot time: {e}")
 
+    # 2. Continuous User Session Monitoring Baseline
+    known_users = set()
+
+    while True:
+        try:
+            # Fetch set of currently logged-in desktop users
+            current_users = {user.name for user in psutil.users()}
+            
+            # Detect new user sessions or switches
+            new_users = current_users - known_users
+            for username in new_users:
+                payload = {
+                    "event_id": get_next_event_id(),
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": "USER_SESSION_STARTED",
+                    "username": username,
+                    "active_users": list(current_users),
+                    "message": f"User session active/switched: {username}"
+                }
+                event_queue.put(payload)
+                write_to_log_file(payload)
+
+            # Detect disconnected user sessions
+            ended_users = known_users - current_users
+            for username in ended_users:
+                payload = {
+                    "event_id": get_next_event_id(),
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": "USER_SESSION_ENDED",
+                    "username": username,
+                    "active_users": list(current_users),
+                    "message": f"User session ended/logged out: {username}"
+                }
+                event_queue.put(payload)
+                write_to_log_file(payload)
+
+            # Update baseline snapshot
+            known_users = current_users
+
+        except Exception as e:
+            debug_log(f"System/Session monitor encountered an error: {e}")
+
+        # Poll every 5 seconds (0% CPU impact)
+        time.sleep(5)

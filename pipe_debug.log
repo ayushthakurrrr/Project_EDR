@@ -1,0 +1,29 @@
+2026-07-24 16:13:41,022 | INFO | Thread-1 (start_ipc_server) | IPC server started
+2026-07-24 16:13:41,023 | INFO | Pipe-Accept | Waiting for client...
+2026-07-24 16:13:41,024 | INFO | Thread-1 (start_ipc_server) | IPC threads started
+2026-07-24 16:13:41,046 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,076 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,092 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,094 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,103 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,107 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,112 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,116 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,118 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,122 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,126 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,130 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,132 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,136 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,138 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,143 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,147 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,149 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,152 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:41,155 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:45,163 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:45,167 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:46,162 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:46,179 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:52,108 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
+2026-07-24 16:13:52,133 | INFO | Pipe-Broadcast | Broadcasting event to 0 clients
