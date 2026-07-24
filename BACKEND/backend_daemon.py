@@ -10,6 +10,7 @@ import win32event
 import servicemanager
 from datetime import datetime
 import win32timezone
+from collections import defaultdict  # <--- NEW: Required to group files by date
 
 # Import your newly separated modules
 from backend_ipc import start_ipc_server, get_next_event_id
@@ -53,23 +54,45 @@ h.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 logger.addHandler(h)
 
 def archive_logs():
-    """Archives old logs into a zip file to save space."""
+    """Archives old logs into a zip file, merging same-day logs into a single file."""
     logs = sorted(
         [
             f for f in os.listdir(BASE) 
              if f.startswith("agent_") and f.endswith(".log")
         ],
-        key=lambda f:os.path.getmtime(os.path.join(BASE,f))
-        )
+        key=lambda f: os.path.getmtime(os.path.join(BASE, f))
+    )
     
     if len(logs) > 7:
+        # Group candidate archive logs by their date prefix (YYYY-MM-DD)
+        logs_by_date = defaultdict(list)
+        for f in logs[:-7]:
+            # Extracts 'YYYY-MM-DD' from 'agent_YYYY-MM-DD.log' or 'agent_YYYY-MM-DD_HH-MM-SS.log'
+            log_date = f.replace("agent_", "").split("_")[0].replace(".log", "")
+            logs_by_date[log_date].append(f)
+
         # Generate the timestamp dynamically when the zip is created
         zip_name = os.path.join(ARCHIVE, f"old_logs_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.zip")
         with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as z:
-            for f in logs[:-7]:
-                p = os.path.join(BASE, f)
-                z.write(p, f)
-                os.remove(p)
+            for log_date, file_list in logs_by_date.items():
+                # Sort the day's files chronologically so log events stay in order
+                file_list.sort(key=lambda f: os.path.getmtime(os.path.join(BASE, f)))
+                
+                merged_content = ""
+                for f in file_list:
+                    p = os.path.join(BASE, f)
+                    try:
+                        with open(p, "r", encoding="utf-8", errors="ignore") as infile:
+                            merged_content += infile.read() + "\n"
+                        # Remove the rotated file from disk once read
+                        os.remove(p)
+                    except Exception as e:
+                        logger.error(f"Error reading/removing {f} during archiving: {e}")
+                
+                # Write the merged text directly into the archive as 'YYYY-MM-DD_edr_log.log'
+                if merged_content.strip():
+                    merged_filename = f"{log_date}_edr_log.log"
+                    z.writestr(merged_filename, merged_content)
 
 def archive_worker():
     """Background thread to periodically check and archive old logs."""
@@ -133,9 +156,6 @@ def run_standalone():
     # Keep script alive
     while True:
         time.sleep(1)
-
-
-
 
 if __name__ == '__main__':
     # 1. VS Code Test Mode
