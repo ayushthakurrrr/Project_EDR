@@ -161,8 +161,10 @@ class MainWindow(QMainWindow):
         self.footer_layout.addWidget(self.hostname_label)
         main_layout.addLayout(self.footer_layout)
 
+        self.total_alerts = 0
+        self.history_events = []
         self.load_history()
-        
+
     def closeEvent(self, event):
         """
         When the user clicks the 'X' button on the dashboard, 
@@ -427,6 +429,30 @@ class MainWindow(QMainWindow):
         self.refresh_btn.clicked.connect(self.load_history)
         btn_layout.addWidget(self.refresh_btn)
         btn_layout.addStretch()
+
+        self.history_type_filter = QComboBox()
+        self.history_type_filter.addItem("All Event Types")
+        btn_layout.addWidget(QLabel("Type:"))
+        btn_layout.addWidget(self.history_type_filter)
+
+        # Severity filter
+        self.history_severity_filter = QComboBox()
+        self.history_severity_filter.addItem("All Severities")
+
+        btn_layout.addWidget(QLabel("Severity:"))
+        btn_layout.addWidget(self.history_severity_filter)
+
+# Date filter
+        self.history_date_filter = QComboBox()
+        self.history_date_filter.addItem("All Dates")
+        btn_layout.addWidget(QLabel("Date:"))
+        btn_layout.addWidget(self.history_date_filter)
+
+# Apply button
+        self.history_filter_btn = QPushButton("Apply Filter")
+        self.history_filter_btn.clicked.connect(self.apply_history_filter)
+        btn_layout.addWidget(self.history_filter_btn)
+
         layout.addLayout(btn_layout)
 
         self.history_table = self.create_event_table()
@@ -575,53 +601,7 @@ class MainWindow(QMainWindow):
                 
         except Exception as e:
             print(f"Failed to populate software table: {e}")
-
-    # def load_softwares(self, json_str):
-    #     """Parses the JSON string from the backend and populates the Softwares table."""
-    #     try:
-    #         # 1. Parse the incoming string from the Named Pipe into a Python dictionary
-    #         event = json.loads(json_str)
-            
-    #         # 2. Clear the table before loading the new list so it doesn't duplicate endlessly
-    #         self.softwares_table.setRowCount(0)
-            
-    #         # 3. Grab the list safely. If it's missing, default to an empty list [].
-    #         installed_softwares = event.get("software_list", [])
-    #         # print(installed_softwares)
-    #         self.softwares_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-
-    #         # 4. Loop through the list and populate the UI table
-    #         # Inside your load_softwares function:
-    #         for software in installed_softwares:
-    #             row = self.softwares_table.rowCount()
-    #             self.softwares_table.insertRow(row)
-                
-    #             # --- NEW: Create the first item and inject the raw data ---
-    #             display_name_item = QTableWidgetItem(software.get("display_name", "N/A"))
-    #             # Dump the specific software dictionary back to a JSON string and save it to the row
-    #             display_name_item.setData(Qt.ItemDataRole.UserRole, json.dumps(software))
-                
-    #             self.softwares_table.setItem(row, 0, display_name_item)
-                
-    #             # The rest of your columns remain the same
-    #             self.softwares_table.setItem(row, 1, QTableWidgetItem(software.get("version", "N/A")))
-    #             self.softwares_table.setItem(row, 2, QTableWidgetItem(software.get("publisher", "N/A")))
-    #             self.softwares_table.setItem(row, 3, QTableWidgetItem(software.get("install_location", "N/A")))
-    #             # --- INSTALL DATE FORMATTING LOGIC ---
-    #             raw_date = software.get("install_date", "")
-    #             display_date = "N/A"
-                
-    #             if raw_date:
-    #                 # Windows registry dates are often YYYYMMDD (exactly 8 digits)
-    #                 if len(raw_date) == 8 and raw_date.isdigit():
-    #                     display_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
-    #                 else:
-    #                     display_date = raw_date # Keep as-is if it's already formatted
-
-    #             self.softwares_table.setItem(row, 4, QTableWidgetItem(display_date))
-                
-    #     except json.JSONDecodeError as e:
-    #         print(f"Failed to parse software JSON: {e}")        
+  
 
 
     def process_live_event(self, json_str):
@@ -629,6 +609,7 @@ class MainWindow(QMainWindow):
 
     def load_history(self):
         """Dynamically finds and loads the most recent log file."""
+        self.history_events.clear()
         self.history_table.setRowCount(0)
         
         # 1. Dynamically scan the directory for the newest log file
@@ -654,12 +635,119 @@ class MainWindow(QMainWindow):
                 for line in f:
                     if " | " in line:
                         json_str = line.split(" | ", 1)[1]
-                        self.add_row_to_table(self.history_table, json_str)
+                        # self.add_row_to_table(self.history_table, json_str)
+                        try:
+                            event = json.loads(json_str)
+
+                            if isinstance(event, dict):
+                               self.history_events.append(event)
+                        except:
+                            pass
                     elif line.startswith("{"):
-                        self.add_row_to_table(self.history_table, line)
+                        # self.add_row_to_table(self.history_table, line)
+                        try:
+                            event = json.loads(line)
+
+                            if isinstance(event, dict):
+                               self.history_events.append(event)
+
+                        except:
+                            pass
         except Exception as e:
             print(f"Error loading history: {e}")
-            
+
+        self.populate_history_filters()
+        self.apply_history_filter()    
+
+    def populate_history_filters(self):
+
+        current_type = self.history_type_filter.currentText()
+        current_date = self.history_date_filter.currentText()
+
+        types = sorted({
+            e.get("type", "Unknown")
+            for e in self.history_events
+        })
+
+        dates = sorted({
+            e.get("timestamp", "")[:10]
+            for e in self.history_events
+        })
+
+        severities = sorted({
+            self.get_event_severity(e)
+            for e in self.history_events
+        })
+
+        self.history_type_filter.clear()
+        self.history_type_filter.addItem("All Event Types")
+        self.history_type_filter.addItems(types)
+
+        self.history_date_filter.clear()
+        self.history_date_filter.addItem("All Dates")
+        self.history_date_filter.addItems(dates)
+
+        self.history_severity_filter.clear()
+        self.history_severity_filter.addItem("All Severities")
+        self.history_severity_filter.addItems(severities)
+
+    def get_event_severity(self, event):
+
+        e_type = event.get("type", "")
+
+        if e_type in [
+            "INSTALLER_DETECTED",
+            "PERSISTENCE_DETECTED",
+            "DOWNLOAD_DETECTED"
+        ]:
+            return "High"
+
+        elif e_type == "NETWORK_CONNECTION":
+            return "Medium"
+
+        elif e_type in [
+            "USER_SESSION_STARTED",
+            "USER_SESSION_ENDED",
+            "SYSTEM_BOOT_INFO"
+        ]:
+            return "Info"
+
+        elif e_type == "UAC_DETECTED":
+            return "Medium"
+
+        else:
+            return "Low"
+        
+    def apply_history_filter(self):
+  
+        self.history_table.setRowCount(0)
+
+        selected_type = self.history_type_filter.currentText()
+        selected_date = self.history_date_filter.currentText()
+        selected_severity = self.history_severity_filter.currentText()
+
+        for event in self.history_events:
+
+            event_type = event.get("type", "")
+            event_date = event.get("timestamp", "")[:10]
+            event_severity = self.get_event_severity(event)
+
+            if selected_type != "All Event Types":
+                if event_type != selected_type:
+                    continue
+
+            if selected_date != "All Dates":
+                if event_date != selected_date:
+                    continue
+            if selected_severity != "All Severities":
+                if event_severity != selected_severity:
+                    continue    
+
+            self.add_row_to_table(
+                self.history_table,
+                json.dumps(event)
+            ) 
+
     def add_row_to_table(self, table, text):
         try:
             event = json.loads(text)
@@ -668,8 +756,9 @@ class MainWindow(QMainWindow):
                 print("Bad event type:", type(event))
                 print("Raw text:", text)
                 return
-            self.total_alerts += 1
-            self.alerts_label.setText(f"Total Alerts: {self.total_alerts}")
+            if table == self.live_table:
+                self.total_alerts += 1
+                self.alerts_label.setText(f"Total Alerts: {self.total_alerts}")
 
             row = table.rowCount()
             table.insertRow(row)
@@ -698,12 +787,6 @@ class MainWindow(QMainWindow):
                     bg_color = QColor("#3d3301") # Deep yellow
                     text_color = QColor("#e3b341")
             
-            # proc_details = "N"
-            # # proc_details = f"{event.get('process_name', 'N/A')} (PID: {event.get('pid', 'N/A')})"
-            # if 'pid' in event: proc_details += f"\PID: {event.get('pid')}"
-            # elif 'process_name' in event: proc_details += f"\nPath: {event.get('process_name')}"
-            # elif 'path' in event: proc_details += f"\nPath: {event.get('path')}"
-            # else : proc_details = "N/A"
             proc_details = " | ".join(
             filter(
                 None,
@@ -864,29 +947,6 @@ class SystemTrayApp(QObject):
         
         self.pipe_listener.start()
 
-    # def route_message(self, text):
-    #     """
-    #     Acts as the main traffic cop for all incoming named pipe data.
-    #     Parses the JSON and routes it to the correct UI processing function.
-    #     """
-    #     try:
-    #         # 1. Parse the raw text string into a Python dictionary
-    #         event = json.loads(text)
-    #         event_type = event.get("type", "")
-
-    #         # print(event)
-    #         # 2. Check the type and route accordingly
-    #         if event_type == "SOFTWARE_LIST":
-    #             # Direct it to your new software tab handler
-    #             self.main_window.load_softwares(text)
-                
-    #         else:
-    #             # Send everything else (INSTALLER_DETECTED, NETWORK_CONNECTION, etc.) 
-    #             # to the original live event processor
-    #             self.main_window.process_live_event(text)
-
-    #     except json.JSONDecodeError:
-    #         print(f"Received malformed text over the pipe that wasn't valid JSON: {text}")
 
     def route_message(self, text):
         """
