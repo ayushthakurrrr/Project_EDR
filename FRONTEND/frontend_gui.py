@@ -9,7 +9,7 @@ import ctypes
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget, 
                              QSystemTrayIcon, QMenu, QPushButton, QHBoxLayout, 
                              QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QComboBox, QLabel, QStyle, QFrame, QTextEdit, QSplitter)
+                             QComboBox, QLabel, QStyle, QFrame, QTextEdit, QSplitter, QAbstractItemView)
 from PyQt6.QtGui import QIcon, QAction, QColor, QFont
 from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt, QTimer
 
@@ -486,7 +486,8 @@ class MainWindow(QMainWindow):
             # 3. Grab the list safely. If it's missing, default to an empty list [].
             installed_softwares = event.get("software_list", [])
             # print(installed_softwares)
-            
+            self.softwares_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
             # 4. Loop through the list and populate the UI table
             # Inside your load_softwares function:
             for software in installed_softwares:
