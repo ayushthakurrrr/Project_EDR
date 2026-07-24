@@ -66,11 +66,6 @@ def accept_clients():
 
         pipe = create_named_pipe()
 
-        write_to_log_file({
-    "component": "PIPE",
-    "event": "WAITING_FOR_CLIENT"
-})
-
         try:
             try:
                 win32pipe.ConnectNamedPipe(pipe, None)
@@ -84,12 +79,7 @@ def accept_clients():
         
             with clients_lock:
                 clients.append(pipe)
-                write_to_log_file({
-    "component": "PIPE",
-    "event": "CLIENT_CONNECTED",
-    "total_clients": len(clients)
-})
-
+    
         except Exception as e:
 
             try:
@@ -112,20 +102,9 @@ def broadcast_events():
             for pipe in clients:
                 try:
                     win32file.WriteFile(pipe, data)
-                    write_to_log_file({
-    "component": "PIPE",
-    "event": "BROADCAST",
-    "clients": len(clients)
-})
 
                 except Exception as e:
                     dead.append(pipe)
-                    write_to_log_file({
-        "component": "PIPE",
-        "event": "WRITE_FAILED",
-        "error": str(e),
-        "client": str(pipe)
-    })
 
             for pipe in dead:
                 clients.remove(pipe)
@@ -134,12 +113,6 @@ def broadcast_events():
         event_queue.task_done()
 
 def start_ipc_server():
-    write_to_log_file({
-        "component": "PIPE",
-        "event": "IPC server started"
-    })
-   
-
     threading.Thread(
         target=accept_clients,
         name="Pipe-Accept",
@@ -151,8 +124,5 @@ def start_ipc_server():
         name="Pipe-Broadcast",
         daemon=True
     ).start()
-    write_to_log_file({
-        "component": "PIPE",
-        "event": "IPC threads started"
-    })
+    
     

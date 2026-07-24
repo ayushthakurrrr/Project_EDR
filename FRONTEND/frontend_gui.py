@@ -160,6 +160,8 @@ class MainWindow(QMainWindow):
         self.footer_layout.addWidget(self.alerts_label)
         self.footer_layout.addWidget(self.hostname_label)
         main_layout.addLayout(self.footer_layout)
+
+        self.load_history()
         
     def closeEvent(self, event):
         """
@@ -467,7 +469,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.history_splitter)
         
         self.history_terminal_frame.hide()
-        self.load_history()
+        # self.load_history()
 
     def setup_softwares_tab(self):
         layout = QVBoxLayout(self.softwares_tab)
@@ -661,6 +663,11 @@ class MainWindow(QMainWindow):
     def add_row_to_table(self, table, text):
         try:
             event = json.loads(text)
+
+            if not isinstance(event, dict):
+                print("Bad event type:", type(event))
+                print("Raw text:", text)
+                return
             self.total_alerts += 1
             self.alerts_label.setText(f"Total Alerts: {self.total_alerts}")
 
