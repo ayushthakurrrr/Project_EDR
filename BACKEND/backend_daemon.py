@@ -18,7 +18,8 @@ from backend_telemetry import (
     start_file_monitor, 
     start_network_monitor, 
     start_registry_monitor,
-    start_software_monitor
+    start_software_monitor,
+    start_system_monitor
 )
 
 # Define paths and logging
@@ -112,6 +113,7 @@ class EDRService(win32serviceutil.ServiceFramework):
         threading.Thread(target=start_registry_monitor, daemon=True).start()
         threading.Thread(target=start_file_monitor, daemon=True).start()
         threading.Thread(target=start_software_monitor, daemon=True).start()
+        threading.Thread(target=start_system_monitor, daemon=True).start()
         # Keep service running until stopped
         win32event.WaitForSingleObject(self.hWaitStop, win32event.INFINITE)
 
@@ -126,6 +128,7 @@ def run_standalone():
     threading.Thread(target=start_registry_monitor, daemon=True).start()
     threading.Thread(target=start_file_monitor, daemon=True).start()
     threading.Thread(target=start_software_monitor, daemon=True).start()
+    threading.Thread(target=start_system_monitor, daemon=True).start()
      
     # Keep script alive
     while True:

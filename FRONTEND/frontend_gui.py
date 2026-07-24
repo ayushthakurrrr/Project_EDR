@@ -124,10 +124,19 @@ class MainWindow(QMainWindow):
         self.alerts_label.setStyleSheet("font-weight: bold; color: #ff7b72; background: #161b22; padding: 8px; border-radius: 6px;")
         self.hostname_label = QLabel(f"Host: {socket.gethostname()}")
         self.hostname_label.setStyleSheet("color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
+        # --- ADD THESE NEW LABELS ---
+        self.boot_time_label = QLabel("Boot: Unknown")
+        self.boot_time_label.setStyleSheet("color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
+        
+        self.users_label = QLabel("Users: 0")
+        self.users_label.setStyleSheet("color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
+        #above is switch user boot alert
 
 
         self.footer_layout.addWidget(self.status_label)
         self.footer_layout.addStretch()
+        self.footer_layout.addWidget(self.boot_time_label)  # <-- NEW_boot
+        self.footer_layout.addWidget(self.users_label)      #<-- NEW_switch_user
         self.footer_layout.addWidget(self.alerts_label)
         self.footer_layout.addWidget(self.hostname_label)
         main_layout.addLayout(self.footer_layout)
@@ -239,6 +248,16 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText("Daemon: Stopped  |  Pipe: Disconnected")
             self.status_label.setStyleSheet("font-weight: bold; color: #ff7b72; background: #161b22; padding: 8px; border-radius: 6px;")
+    #switch _user and boot time update
+    def update_boot_ui(self, boot_time_str):
+        self.boot_time_label.setText(f"Boot: {boot_time_str}")
+
+    def update_users_ui(self, users_list):
+        user_count = len(users_list)
+        formatted_users = ", ".join(users_list) if users_list else "None"
+        self.users_label.setToolTip(formatted_users) # Shows names when hovering!
+        self.users_label.setText(f"Users: {user_count}")
+    #above in both switch and boot time update
 
     def create_event_table(self):
         table = QTableWidget(0, 5)
@@ -575,6 +594,12 @@ class MainWindow(QMainWindow):
                 severity = "Medium"
                 bg_color = QColor("#0a3069")  # Deep blue background
                 text_color = QColor("#79c0ff") # Bright blue text
+            # --- NEW CODE: Highlight User Sessions & Boots ---
+            elif e_type in ["USER_SESSION_STARTED", "USER_SESSION_ENDED", "SYSTEM_BOOT_INFO"]:
+                severity = "Info"
+                bg_color = QColor("#1e0a3c")  # Deep purple background
+                text_color = QColor("#a371f7") # Bright purple text
+            # --------------------------------------------------
             else:
                 severity = "Low"
                 bg_color = QColor("#0d1117")  # Standard dark
@@ -762,6 +787,18 @@ class SystemTrayApp(QObject):
             if event_type == "SOFTWARE_LIST":
                 # Direct it to your new software tab handler
                 self.main_window.load_softwares(text)
+                
+            # --- boot and switch user ---
+            elif event_type == "SYSTEM_BOOT_INFO":
+                boot_time = event.get("boot_time", "Unknown")
+                self.main_window.update_boot_ui(boot_time)
+                self.main_window.process_live_event(text)
+                
+            elif event_type in ("USER_SESSION_STARTED", "USER_SESSION_ENDED"):
+                active_users = event.get("active_users", [])
+                self.main_window.update_users_ui(active_users)
+                # Pass to live table so the login/logout is visually logged
+                self.main_window.process_live_event(text)
                 
             else:
                 # Send everything else (INSTALLER_DETECTED, NETWORK_CONNECTION, etc.) 
