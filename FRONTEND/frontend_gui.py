@@ -3,6 +3,7 @@ import os
 import json
 import time
 import win32file
+import pywintypes
 import socket
 import subprocess
 import ctypes
@@ -51,6 +52,9 @@ def get_resource_path(relative_path):
 class PipeListener(QThread):
     message_received = pyqtSignal(str)
     connection_status = pyqtSignal(bool)
+    
+    # 1. Add the new signal specifically for the software array
+    software_list_received = pyqtSignal(list)
 
     def run(self):
         while True:
@@ -69,7 +73,23 @@ class PipeListener(QThread):
                         while "\n" in buffer:
                             line, buffer = buffer.split("\n", 1)
                             if line.strip():
-                                self.message_received.emit(line)
+                                # 2. Intercept the payload to check its type
+                                try:
+                                    payload = json.loads(line)
+                                    
+                                    # If it's the software list, route it to the new signal
+                                    if payload.get("type") == "SOFTWARE_LIST":
+                                        software_data = payload.get("software_list", [])
+                                        self.software_list_received.emit(software_data)
+                                    else:
+                                        # For all other events (PROCESS_EVENT, etc.), 
+                                        # send them to your existing string signal
+                                        self.message_received.emit(line)
+                                        
+                                except json.JSONDecodeError:
+                                    # If the line isn't valid JSON, fallback to existing behavior
+                                    self.message_received.emit(line)
+                                    
             except Exception:
                 self.connection_status.emit(False)
                 time.sleep(3)
@@ -132,8 +152,6 @@ class MainWindow(QMainWindow):
         self.footer_layout.addWidget(self.hostname_label)
         main_layout.addLayout(self.footer_layout)
         
-
-    # SPECIFIC UPDATE: Intercepting the window close event to hide instead of exit
     def closeEvent(self, event):
         """
         When the user clicks the 'X' button on the dashboard, 
@@ -145,6 +163,27 @@ class MainWindow(QMainWindow):
             self.live_table.setRowCount(0)
         # --
         self.hide()
+
+    def send_backend_command(self, action_name):
+        """
+        Opens the command pipe, sends a JSON command, and closes the pipe.
+        """
+        import win32file, pywintypes, json  # Ensure these are imported at the top of your file
+        
+        pipe_name = r'\\.\pipe\EDR_Commands'
+        payload = {"action": action_name}
+        payload_str = json.dumps(payload)
+        
+        try:
+            handle = win32file.CreateFile(
+                pipe_name, win32file.GENERIC_WRITE, 0, None, win32file.OPEN_EXISTING, 0, None
+            )
+            win32file.WriteFile(handle, payload_str.encode('utf-8'))
+            win32file.CloseHandle(handle)
+            print(f"[GUI] Sent command to backend: {action_name}")
+            
+        except pywintypes.error as e:
+            print(f"[GUI] Failed to send command. Is backend listening? Error: {e}")
 
     def apply_modern_theme(self):
         """Applies a highly polished, VS Code / GitHub style dark mode."""
@@ -417,7 +456,12 @@ class MainWindow(QMainWindow):
         
         btn_layout = QHBoxLayout()
         self.refresh_softwares_btn = QPushButton("🔄 Refresh Installed Software")
-        self.refresh_softwares_btn.setEnabled(False) 
+        # --- CHANGES HERE ---
+        # 1. Enable the button!
+        self.refresh_softwares_btn.setEnabled(True) 
+        # 2. Connect it to the command sender
+        self.refresh_softwares_btn.clicked.connect(lambda: self.send_backend_command("REFRESH_SOFTWARE"))
+
         btn_layout.addWidget(self.refresh_softwares_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
@@ -474,52 +518,90 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.software_splitter)
         self.software_terminal_frame.hide()
 
-    def load_softwares(self, json_str):
-        """Parses the JSON string from the backend and populates the Softwares table."""
+    def load_softwares(self, software_list):
+        """Populates the Softwares table using the list from the telemetry thread."""
         try:
-            # 1. Parse the incoming string from the Named Pipe into a Python dictionary
-            event = json.loads(json_str)
-            
-            # 2. Clear the table before loading the new list so it doesn't duplicate endlessly
+            # 1. Clear the table before loading the new list
             self.softwares_table.setRowCount(0)
-            
-            # 3. Grab the list safely. If it's missing, default to an empty list [].
-            installed_softwares = event.get("software_list", [])
-            # print(installed_softwares)
             self.softwares_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
-            # 4. Loop through the list and populate the UI table
-            # Inside your load_softwares function:
-            for software in installed_softwares:
+            # 2. Loop through the Python list passed directly from the signal
+            for software in software_list:
                 row = self.softwares_table.rowCount()
                 self.softwares_table.insertRow(row)
                 
-                # --- NEW: Create the first item and inject the raw data ---
                 display_name_item = QTableWidgetItem(software.get("display_name", "N/A"))
                 # Dump the specific software dictionary back to a JSON string and save it to the row
                 display_name_item.setData(Qt.ItemDataRole.UserRole, json.dumps(software))
                 
                 self.softwares_table.setItem(row, 0, display_name_item)
                 
-                # The rest of your columns remain the same
                 self.softwares_table.setItem(row, 1, QTableWidgetItem(software.get("version", "N/A")))
                 self.softwares_table.setItem(row, 2, QTableWidgetItem(software.get("publisher", "N/A")))
                 self.softwares_table.setItem(row, 3, QTableWidgetItem(software.get("install_location", "N/A")))
+                
                 # --- INSTALL DATE FORMATTING LOGIC ---
                 raw_date = software.get("install_date", "")
                 display_date = "N/A"
                 
                 if raw_date:
-                    # Windows registry dates are often YYYYMMDD (exactly 8 digits)
                     if len(raw_date) == 8 and raw_date.isdigit():
                         display_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
                     else:
-                        display_date = raw_date # Keep as-is if it's already formatted
+                        display_date = raw_date 
 
                 self.softwares_table.setItem(row, 4, QTableWidgetItem(display_date))
                 
-        except json.JSONDecodeError as e:
-            print(f"Failed to parse software JSON: {e}")        
+        except Exception as e:
+            print(f"Failed to populate software table: {e}")
+
+    # def load_softwares(self, json_str):
+    #     """Parses the JSON string from the backend and populates the Softwares table."""
+    #     try:
+    #         # 1. Parse the incoming string from the Named Pipe into a Python dictionary
+    #         event = json.loads(json_str)
+            
+    #         # 2. Clear the table before loading the new list so it doesn't duplicate endlessly
+    #         self.softwares_table.setRowCount(0)
+            
+    #         # 3. Grab the list safely. If it's missing, default to an empty list [].
+    #         installed_softwares = event.get("software_list", [])
+    #         # print(installed_softwares)
+    #         self.softwares_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+    #         # 4. Loop through the list and populate the UI table
+    #         # Inside your load_softwares function:
+    #         for software in installed_softwares:
+    #             row = self.softwares_table.rowCount()
+    #             self.softwares_table.insertRow(row)
+                
+    #             # --- NEW: Create the first item and inject the raw data ---
+    #             display_name_item = QTableWidgetItem(software.get("display_name", "N/A"))
+    #             # Dump the specific software dictionary back to a JSON string and save it to the row
+    #             display_name_item.setData(Qt.ItemDataRole.UserRole, json.dumps(software))
+                
+    #             self.softwares_table.setItem(row, 0, display_name_item)
+                
+    #             # The rest of your columns remain the same
+    #             self.softwares_table.setItem(row, 1, QTableWidgetItem(software.get("version", "N/A")))
+    #             self.softwares_table.setItem(row, 2, QTableWidgetItem(software.get("publisher", "N/A")))
+    #             self.softwares_table.setItem(row, 3, QTableWidgetItem(software.get("install_location", "N/A")))
+    #             # --- INSTALL DATE FORMATTING LOGIC ---
+    #             raw_date = software.get("install_date", "")
+    #             display_date = "N/A"
+                
+    #             if raw_date:
+    #                 # Windows registry dates are often YYYYMMDD (exactly 8 digits)
+    #                 if len(raw_date) == 8 and raw_date.isdigit():
+    #                     display_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+    #                 else:
+    #                     display_date = raw_date # Keep as-is if it's already formatted
+
+    #             self.softwares_table.setItem(row, 4, QTableWidgetItem(display_date))
+                
+    #     except json.JSONDecodeError as e:
+    #         print(f"Failed to parse software JSON: {e}")        
+
 
     def process_live_event(self, json_str):
         self.add_row_to_table(self.live_table, json_str)
@@ -744,30 +826,47 @@ class SystemTrayApp(QObject):
         self.pipe_listener = PipeListener()
         self.pipe_listener.message_received.connect(self.route_message)
         self.pipe_listener.connection_status.connect(self.update_pipe_status)
+        
+        # --- NEW: Connect the software list signal directly to load_softwares ---
+        self.pipe_listener.software_list_received.connect(self.main_window.load_softwares)
+        
         self.pipe_listener.start()
 
-    import json
+    # def route_message(self, text):
+    #     """
+    #     Acts as the main traffic cop for all incoming named pipe data.
+    #     Parses the JSON and routes it to the correct UI processing function.
+    #     """
+    #     try:
+    #         # 1. Parse the raw text string into a Python dictionary
+    #         event = json.loads(text)
+    #         event_type = event.get("type", "")
+
+    #         # print(event)
+    #         # 2. Check the type and route accordingly
+    #         if event_type == "SOFTWARE_LIST":
+    #             # Direct it to your new software tab handler
+    #             self.main_window.load_softwares(text)
+                
+    #         else:
+    #             # Send everything else (INSTALLER_DETECTED, NETWORK_CONNECTION, etc.) 
+    #             # to the original live event processor
+    #             self.main_window.process_live_event(text)
+
+    #     except json.JSONDecodeError:
+    #         print(f"Received malformed text over the pipe that wasn't valid JSON: {text}")
 
     def route_message(self, text):
         """
-        Acts as the main traffic cop for all incoming named pipe data.
-        Parses the JSON and routes it to the correct UI processing function.
+        Processes live events like INSTALLER_DETECTED or PROCESS_EVENT.
+        (Software lists are now handled directly by the software_list_received signal).
         """
         try:
-            # 1. Parse the raw text string into a Python dictionary
-            event = json.loads(text)
-            event_type = event.get("type", "")
-
-            # print(event)
-            # 2. Check the type and route accordingly
-            if event_type == "SOFTWARE_LIST":
-                # Direct it to your new software tab handler
-                self.main_window.load_softwares(text)
-                
-            else:
-                # Send everything else (INSTALLER_DETECTED, NETWORK_CONNECTION, etc.) 
-                # to the original live event processor
-                self.main_window.process_live_event(text)
+            # Just verify it's valid JSON before passing it to the UI
+            json.loads(text) 
+            
+            # Route directly to your live event processor
+            self.main_window.process_live_event(text)
 
         except json.JSONDecodeError:
             print(f"Received malformed text over the pipe that wasn't valid JSON: {text}")

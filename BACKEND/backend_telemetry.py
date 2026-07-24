@@ -6,6 +6,7 @@ import win32api #registry sensor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import glob
+import winreg
 
 # Import shared resources from your upcoming utilities file
 from backend_ipc import (
@@ -303,7 +304,11 @@ def start_file_monitor():
     except Exception as e:
         debug_log(f"Error in file monitor: {str(e)}") 
 
-def start_software_monitor():
+def start_software_monitor(event_queue=None):
+    """
+    Scans Windows registry uninstall paths for installed software 
+    and pushes the payload to the event_queue.
+    """
     debug_log("Initializing Software Monitor...")
     UNINSTALL_PATHS = [
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -311,66 +316,69 @@ def start_software_monitor():
     ]
     
     software_list = []
+    
     for path in UNINSTALL_PATHS:
         root = winreg.HKEY_LOCAL_MACHINE
 
         try:
-            key = winreg.OpenKey(root,path)
-            
+            key = winreg.OpenKey(root, path)
         except FileNotFoundError:
             continue
 
         i = 0
         while True:
             try:
-                subkey_name = winreg.EnumKey(key,i)
-
-                subkey_path = path+"\\"+subkey_name
+                subkey_name = winreg.EnumKey(key, i)
+                subkey_path = path + "\\" + subkey_name
+                
                 try:
-                    subkey = winreg.OpenKey(root,subkey_path)
-                    
-
+                    subkey = winreg.OpenKey(root, subkey_path)
                 except FileNotFoundError:
-                    i+=1
+                    i += 1
                     continue    
-                    
-                
-                def get_value(name):
-                    try:
-                        value, _ = winreg.QueryValueEx(subkey,name)
-                        return value
-                    except FileNotFoundError:
-                        return None    
-                
-                display_name = get_value("DisplayName")
-                
-                if display_name:
-                    software = {
-                        "display_name" : display_name,
-                        "version" : get_value("DisplayVersion"),
-                        "publisher" : get_value("Publisher"),
-                        "install_location" : get_value("InstallLocation"),
-                        "install_date":get_value("InstallDate"),
-                    }
-                    software_list.append(software)
 
-                winreg.CloseKey(subkey)
+                try:
+                    def get_value(name):
+                        try:
+                            value, _ = winreg.QueryValueEx(subkey, name)
+                            return value
+                        except FileNotFoundError:
+                            return None    
+                    
+                    display_name = get_value("DisplayName")
+                    
+                    if display_name:
+                        software = {
+                            "display_name": display_name,
+                            "version": get_value("DisplayVersion"),
+                            "publisher": get_value("Publisher"),
+                            "install_location": get_value("InstallLocation"),
+                            "install_date": get_value("InstallDate"),
+                        }
+                        software_list.append(software)
+                finally:
+                    # Guarantees the handle is closed even if an exception occurs above
+                    winreg.CloseKey(subkey)
 
             except OSError:
+                # End of subkeys enumeration
                 break
 
-            i+=1
+            i += 1
+            
         winreg.CloseKey(key)
+
     print(f"Discovered {len(software_list)} installed applications.")
     
-    # Format the payload EXACTLY how the GUI router expects it
     payload = {
         "type": "SOFTWARE_LIST",
         "software_list": software_list
     }
     
-    event_queue.put(payload)
-    # write_to_log_file(payload)
+    if event_queue:
+        event_queue.put(payload)
+    
+    return payload
     
     
 
