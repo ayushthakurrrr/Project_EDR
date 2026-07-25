@@ -6,6 +6,7 @@ import win32api #registry sensor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import glob
+import winreg
 
 # Import shared resources from your upcoming utilities file
 from backend_ipc import (
@@ -215,6 +216,25 @@ class DownloadHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         path = event.src_path
+        normalized = os.path.normpath(path).lower()
+
+        # Ignore Windows system profiles
+        ignored_profiles = (
+        r"c:\users\public",
+        r"c:\users\default",
+        r"c:\users\default user",
+        r"c:\users\all users"
+        )
+
+        if normalized.startswith(ignored_profiles):
+            return
+
+        # Only process files created inside a Downloads folder
+        parts = normalized.split(os.sep)
+
+        if "downloads" not in parts:
+            return
+
         if path.lower().endswith((".tmp", ".temp", ".crdownload", ".part", ".cache", ".log")):
             return
         time.sleep(10)
@@ -266,44 +286,71 @@ class DownloadHandler(FileSystemEventHandler):
 
 
 
+# def start_file_monitor():
+#     """Background worker that monitors the Downloads folder for newly downloaded files."""
+#     debug_log("Initializing File Download Monitor...")
+
+#     try:
+#         # 1. Find all legitimate human user download folders on the machine
+#         download_folders = []
+#         for user_dir in glob.glob("C:\\Users\\*"):
+#             # Skip Windows default/system profiles
+#             if not user_dir.endswith(("Public", "Default", "Default User", "All Users")):
+#                 target_path = os.path.join(user_dir, "Downloads")
+#                 if os.path.exists(target_path):
+#                     download_folders.append(target_path)
+
+#         if not download_folders:
+#             debug_log("No active user Downloads folders found to monitor.")
+#             return
+
+#         observer = Observer()
+        
+#         # 2. Schedule the watchdog handler for EVERY user's download directory
+#         for folder in download_folders:
+#             observer.schedule(
+#                 DownloadHandler(),
+#                 folder,
+#                 recursive=False
+#             )
+#             debug_log(f"Watching folder: {folder}")
+
+#         observer.start()
+
+#         while True:
+#             time.sleep(1)
+            
+#     except Exception as e:
+#         debug_log(f"Error in file monitor: {str(e)}") 
 def start_file_monitor():
-    """Background worker that monitors the Downloads folder for newly downloaded files."""
+    """Background worker that monitors all users' Downloads folders."""
     debug_log("Initializing File Download Monitor...")
 
     try:
-        # 1. Find all legitimate human user download folders on the machine
-        download_folders = []
-        for user_dir in glob.glob("C:\\Users\\*"):
-            # Skip Windows default/system profiles
-            if not user_dir.endswith(("Public", "Default", "Default User", "All Users")):
-                target_path = os.path.join(user_dir, "Downloads")
-                if os.path.exists(target_path):
-                    download_folders.append(target_path)
-
-        if not download_folders:
-            debug_log("No active user Downloads folders found to monitor.")
-            return
-
         observer = Observer()
-        
-        # 2. Schedule the watchdog handler for EVERY user's download directory
-        for folder in download_folders:
-            observer.schedule(
-                DownloadHandler(),
-                folder,
-                recursive=False
-            )
-            debug_log(f"Watching folder: {folder}")
+
+        # Monitor the entire Users directory
+        observer.schedule(
+            DownloadHandler(),
+            r"C:\Users",
+            recursive=True
+        )
+
+        debug_log("Watching C:\\Users recursively")
 
         observer.start()
 
         while True:
             time.sleep(1)
-            
-    except Exception as e:
-        debug_log(f"Error in file monitor: {str(e)}") 
 
-def start_software_monitor():
+    except Exception as e:
+        debug_log(f"Error in file monitor: {e}")
+
+def start_software_monitor(event_queue=None):
+    """
+    Scans Windows registry uninstall paths for installed software 
+    and pushes the payload to the event_queue.
+    """
     debug_log("Initializing Software Monitor...")
     UNINSTALL_PATHS = [
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -311,66 +358,69 @@ def start_software_monitor():
     ]
     
     software_list = []
+    
     for path in UNINSTALL_PATHS:
         root = winreg.HKEY_LOCAL_MACHINE
 
         try:
-            key = winreg.OpenKey(root,path)
-            
+            key = winreg.OpenKey(root, path)
         except FileNotFoundError:
             continue
 
         i = 0
         while True:
             try:
-                subkey_name = winreg.EnumKey(key,i)
-
-                subkey_path = path+"\\"+subkey_name
+                subkey_name = winreg.EnumKey(key, i)
+                subkey_path = path + "\\" + subkey_name
+                
                 try:
-                    subkey = winreg.OpenKey(root,subkey_path)
-                    
-
+                    subkey = winreg.OpenKey(root, subkey_path)
                 except FileNotFoundError:
-                    i+=1
+                    i += 1
                     continue    
-                    
-                
-                def get_value(name):
-                    try:
-                        value, _ = winreg.QueryValueEx(subkey,name)
-                        return value
-                    except FileNotFoundError:
-                        return None    
-                
-                display_name = get_value("DisplayName")
-                
-                if display_name:
-                    software = {
-                        "display_name" : display_name,
-                        "version" : get_value("DisplayVersion"),
-                        "publisher" : get_value("Publisher"),
-                        "install_location" : get_value("InstallLocation"),
-                        "install_date":get_value("InstallDate"),
-                    }
-                    software_list.append(software)
 
-                winreg.CloseKey(subkey)
+                try:
+                    def get_value(name):
+                        try:
+                            value, _ = winreg.QueryValueEx(subkey, name)
+                            return value
+                        except FileNotFoundError:
+                            return None    
+                    
+                    display_name = get_value("DisplayName")
+                    
+                    if display_name:
+                        software = {
+                            "display_name": display_name,
+                            "version": get_value("DisplayVersion"),
+                            "publisher": get_value("Publisher"),
+                            "install_location": get_value("InstallLocation"),
+                            "install_date": get_value("InstallDate"),
+                        }
+                        software_list.append(software)
+                finally:
+                    # Guarantees the handle is closed even if an exception occurs above
+                    winreg.CloseKey(subkey)
 
             except OSError:
+                # End of subkeys enumeration
                 break
 
-            i+=1
+            i += 1
+            
         winreg.CloseKey(key)
+
     print(f"Discovered {len(software_list)} installed applications.")
     
-    # Format the payload EXACTLY how the GUI router expects it
     payload = {
         "type": "SOFTWARE_LIST",
         "software_list": software_list
     }
     
-    event_queue.put(payload)
-    # write_to_log_file(payload)
+    if event_queue:
+        event_queue.put(payload)
+    
+    return payload
     
 #start _system_monitor and user session monitor 
 def start_system_monitor():

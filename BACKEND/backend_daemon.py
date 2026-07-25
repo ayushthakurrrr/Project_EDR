@@ -11,9 +11,13 @@ import servicemanager
 from datetime import datetime
 import win32timezone
 from collections import defaultdict  # <--- NEW: Required to group files by date
+import win32pipe
+import win32file
+import pywintypes
+import json
 
 # Import your newly separated modules
-from backend_ipc import start_ipc_server, get_next_event_id
+from backend_ipc import start_ipc_server, get_next_event_id, event_queue
 from backend_telemetry import (
     start_wmi_monitor, 
     start_file_monitor, 
@@ -52,6 +56,71 @@ class DailySizeHandler(logging.Handler):
 h = DailySizeHandler()
 h.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 logger.addHandler(h)
+
+def listen_for_commands(event_queue):
+    """
+    Dedicated thread to listen for incoming commands from the PyQt GUI.
+    It reads from a separate pipe so it never blocks outgoing telemetry.
+    """
+    pipe_name = r'\\.\pipe\EDR_Commands'
+    
+    while True:
+        try:
+            # Create the Command Pipe (Server Side)
+            # PIPE_ACCESS_INBOUND ensures the backend can only READ from this pipe.
+            pipe = win32pipe.CreateNamedPipe(
+                pipe_name,
+                win32pipe.PIPE_ACCESS_INBOUND, 
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                1, 65536, 65536,
+                0,
+                None
+            )
+            
+            print(f"[Command Thread] Waiting for GUI to connect to {pipe_name}...")
+            win32pipe.ConnectNamedPipe(pipe, None)
+            print("[Command Thread] GUI connected. Listening...")
+            
+            while True:
+                try:
+                    # This is a synchronous, blocking read. 
+                    # It will sit here safely until the GUI writes to the pipe.
+                    result, data = win32file.ReadFile(pipe, 64000)
+                    
+                    if data:
+                        command_str = data.decode('utf-8')
+                        command_dict = json.loads(command_str)
+                        
+                        action = command_dict.get("action")
+                        
+                        # Route the incoming commands
+                        if action == "REFRESH_SOFTWARE":
+                            print("[Command Thread] Received REFRESH_SOFTWARE command from GUI.")
+                            
+                            # Trigger your software scanner!
+                            # It will scan the registry and drop the payload directly into event_queue
+                            start_software_monitor(event_queue)
+                            
+                except pywintypes.error as e:
+                    # Error 109 means the GUI disconnected (e.g., app was closed)
+                    if e.args[0] == 109: 
+                        print("[Command Thread] GUI disconnected. Restarting pipe...")
+                        break 
+                    else:
+                        print(f"[Command Thread] Read error: {e}")
+                        break
+                        
+        except Exception as e:
+            print(f"[Command Thread] Pipe creation error: {e}")
+            time.sleep(2) # Brief pause before retrying to prevent CPU spinning
+            
+        finally:
+            # Always clean up the handle before looping back to create a new one
+            try:
+                win32pipe.DisconnectNamedPipe(pipe)
+                win32file.CloseHandle(pipe)
+            except:
+                pass
 
 def archive_logs():
     """Archives old logs into a zip file, merging same-day logs into a single file."""
@@ -135,7 +204,9 @@ class EDRService(win32serviceutil.ServiceFramework):
         threading.Thread(target=start_network_monitor, daemon=True).start()
         threading.Thread(target=start_registry_monitor, daemon=True).start()
         threading.Thread(target=start_file_monitor, daemon=True).start()
-        threading.Thread(target=start_software_monitor, daemon=True).start()
+        # threading.Thread(target=start_software_monitor, daemon=True).start()
+        threading.Thread(target=listen_for_commands, args=(event_queue,), daemon=True).start()
+
         threading.Thread(target=start_system_monitor, daemon=True).start()
         # Keep service running until stopped
         win32event.WaitForSingleObject(self.hWaitStop, win32event.INFINITE)
@@ -150,7 +221,8 @@ def run_standalone():
     threading.Thread(target=start_network_monitor, daemon=True).start()
     threading.Thread(target=start_registry_monitor, daemon=True).start()
     threading.Thread(target=start_file_monitor, daemon=True).start()
-    threading.Thread(target=start_software_monitor, daemon=True).start()
+    # threading.Thread(target=start_software_monitor, daemon=True).start()
+    threading.Thread(target=listen_for_commands, args=(event_queue,), daemon=True).start()
     threading.Thread(target=start_system_monitor, daemon=True).start()
      
     # Keep script alive
