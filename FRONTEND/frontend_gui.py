@@ -1016,10 +1016,10 @@ class SystemTrayApp(QObject):
         self.pipe_listener.start()
 
 
+
     def route_message(self, text):
         """
-        Processes live events like INSTALLER_DETECTED or PROCESS_EVENT.
-        (Software lists are now handled directly by the software_list_received signal).
+        Processes live events like INSTALLER_DETECTED or PROCESS_EVENT without duplicating rows.
         """
         try:
             # Just verify it's valid JSON before passing it to the UI
@@ -1031,13 +1031,12 @@ class SystemTrayApp(QObject):
             event = json.loads(text)
             event_type = event.get("type", "")
 
-            # print(event)
             # 2. Check the type and route accordingly
             if event_type == "SOFTWARE_LIST":
-                # Direct it to your new software tab handler
-                self.main_window.load_softwares(text)
+                # Direct it to your software tab handler
+                self.main_window.load_softwares(event.get("software_list", []))
                 
-            # --- boot and switch user ---
+            # --- Boot and Switch User UI Updates ---
             elif event_type == "SYSTEM_BOOT_INFO":
                 boot_time = event.get("boot_time", "Unknown")
                 self.main_window.update_boot_ui(boot_time)
@@ -1046,12 +1045,11 @@ class SystemTrayApp(QObject):
             elif event_type in ("USER_SESSION_STARTED", "USER_SESSION_ENDED"):
                 active_users = event.get("active_users", [])
                 self.main_window.update_users_ui(active_users)
-                # Pass to live table so the login/logout is visually logged
                 self.main_window.process_live_event(text)
                 
             else:
-                # Send everything else (INSTALLER_DETECTED, NETWORK_CONNECTION, etc.) 
-                # to the original live event processor
+                # Send everything else (DOWNLOAD_DETECTED, PROCESS_CREATION, NETWORK_CONNECTION, etc.)
+                # to the live event processor ONCE!
                 self.main_window.process_live_event(text)
 
         except json.JSONDecodeError:
