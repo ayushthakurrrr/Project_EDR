@@ -1,21 +1,63 @@
-import time ,wmi,os
-import pythoncom ,psutil, winreg
-import hashlib,shutil,tempfile,sqlite3
-import win32api #registry sensor 
+import time, wmi, os
+import pythoncom, psutil, winreg
+import hashlib, shutil, tempfile, sqlite3
+import win32api # registry sensor 
+import queue
+import threading
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import glob
-import winreg
 
 # Import shared resources from your upcoming utilities file
 from backend_ipc import (
-    event_queue ,
+    event_queue,
     write_to_log_file, 
     debug_log, 
     get_next_event_id, 
     get_allow_list
 )
+
+# --- NEW: Forensic Caching Engine ---
+# In-memory LRU-style Hash Cache: { file_path: (mtime, sha256_hash) }
+HASH_CACHE = {}
+
+def get_file_sha256(file_path):
+    """
+    Computes SHA256 hash with memory caching.
+    Prevents high CPU/Disk usage when processes spawn frequently.
+    """
+    if not file_path or file_path == "Unknown" or not os.path.exists(file_path):
+        return "Unknown"
+
+    try:
+        # Check current file modification time
+        current_mtime = os.path.getmtime(file_path)
+
+        # Return cached hash if file hasn't changed
+        if file_path in HASH_CACHE:
+            cached_mtime, cached_hash = HASH_CACHE[file_path]
+            if cached_mtime == current_mtime:
+                return cached_hash
+
+        # Compute new hash if not in cache or modified
+        sha256 = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                sha256.update(chunk)
+        
+        hash_value = sha256.hexdigest()
+
+        # Update cache
+        HASH_CACHE[file_path] = (current_mtime, hash_value)
+        return hash_value
+
+    except Exception:
+        return "AccessDenied/Error"
+
+# Create an async queue specifically for downloaded files needing processing
+download_queue = queue.Queue()
+
 
 def start_wmi_monitor():
     """Background worker that listens for Windows process creation events (Event-Driven)."""
@@ -53,6 +95,16 @@ def start_wmi_monitor():
             except:
                 executable_path = "Unknown"
 
+            # --- NEW: Forensic Enrichment ---
+            # 1. CAPTURE COMMAND LINE ARGUMENTS
+            try:
+                command_line = getattr(wmi_event, "CommandLine", None) or "Unknown"
+            except:
+                command_line = "Unknown"
+
+            # 2. GET SHA256 HASH (USES CACHE AUTOMATICALLY)
+            process_hash = get_file_sha256(executable_path)
+
             # UAC and Installer Detection
             lower_name = process_name.lower()
             event_type = "PROCESS_CREATION"
@@ -71,6 +123,8 @@ def start_wmi_monitor():
                 "parent_name": parent_name,
                 "parent_pid": parent_id,
                 "path": executable_path,
+                "command_line": command_line,  
+                "sha256": process_hash,        
                 "message": f"Process {process_name} (PID: {process_id}) spawned by {parent_name} (PID: {parent_id})."
             }
             
@@ -87,7 +141,7 @@ def start_network_monitor():
     
     while True:
         try:
-            current_snapshot = set() # FIX 2: Create a fresh snapshot every loop
+            current_snapshot = set() # Create a fresh snapshot every loop
             connections = psutil.net_connections(kind='tcp')
             allow_list = get_allow_list()
             
@@ -99,8 +153,7 @@ def start_network_monitor():
                         continue
                         
                     conn_key = (conn.pid, remote_ip, remote_port)
-                    current_snapshot.add(conn_key) # FIX 2: Add alive connection to snapshot
-                    
+                    current_snapshot.add(conn_key) # Add alive connection to snapshot
                     
                     if conn_key not in known_connections:
                         known_connections.add(conn_key)
@@ -129,11 +182,12 @@ def start_network_monitor():
                         
                         event_queue.put(payload)
                         write_to_log_file(payload)
-            # FIX 2: Overwrite old cache with current snapshot. Drops dead connections instantly!
-            known_connections = current_snapshot
-                        
+            
         except Exception as e:
             debug_log(f"Network Monitor encountered an error: {e}")
+        finally:
+            # Overwrite old cache with current snapshot safely. Drops dead connections instantly!
+            known_connections = current_snapshot
             
         time.sleep(2) 
 
@@ -141,7 +195,7 @@ def start_registry_monitor():
     """Background worker that watches for changes in startup Registry keys."""
     debug_log("Initializing Registry Persistence Monitor...")
 
-        # FIX 3: Define OS constants missing from pywin32
+    # Define OS constants missing from pywin32
     REG_NOTIFY_CHANGE_NAME = 0x00000001
     REG_NOTIFY_CHANGE_LAST_SET = 0x00000004
     
@@ -160,7 +214,7 @@ def start_registry_monitor():
 
     baseline = get_run_keys()
 
-        # FIX 3: Open handle to the key with NOTIFY permissions
+    # Open handle to the key with NOTIFY permissions
     try:
         hKey = winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE, 
@@ -173,10 +227,8 @@ def start_registry_monitor():
         return
 
     while True:
-        # time.sleep(5)
-        # FIX 3: Use RegNotifyChangeKeyValue to wait for changes
         try:
-            # FIX 3: Blocking API Call. 0% CPU usage. Only wakes up when the OS detects a change.
+            # Blocking API Call. 0% CPU usage. Only wakes up when the OS detects a change.
             win32api.RegNotifyChangeKeyValue(
                 hKey, 
                 True, 
@@ -185,26 +237,26 @@ def start_registry_monitor():
                 False
             )
 
-      
             current_keys = get_run_keys()
         
             for name, value in current_keys.items():
                  if name not in baseline or baseline[name] != value:
                      payload = {
-                    "event_id": get_next_event_id(),
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "type": "PERSISTENCE_DETECTED",
-                    "reg_path": f"HKLM\\{run_key_path}",
-                    "key_name": name,
-                    "key_value": value,
-                    "message": f"Suspicious Registry Run key added: {name} -> {value}"
-                }
+                        "event_id": get_next_event_id(),
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "type": "PERSISTENCE_DETECTED",
+                        "reg_path": f"HKLM\\{run_key_path}",
+                        "key_name": name,
+                        "key_value": value,
+                        "message": f"Suspicious Registry Run key added: {name} -> {value}"
+                    }
                 
                      event_queue.put(payload)
                      write_to_log_file(payload)
 
-                     # FIX 3: Update baseline for the next differential check
-                     baseline = current_keys
+            # Update baseline for the next differential check
+            baseline = current_keys
+            
         except Exception as e:
             debug_log(f"Registry Monitor encountered an error: {e}")
             time.sleep(5) # Fallback to prevent crash loops
@@ -212,18 +264,18 @@ def start_registry_monitor():
 
 class DownloadHandler(FileSystemEventHandler):
     def on_created(self, event):
-
         if event.is_directory:
             return
+        
         path = event.src_path
         normalized = os.path.normpath(path).lower()
 
         # Ignore Windows system profiles
         ignored_profiles = (
-        r"c:\users\public",
-        r"c:\users\default",
-        r"c:\users\default user",
-        r"c:\users\all users"
+            r"c:\users\public",
+            r"c:\users\default",
+            r"c:\users\default user",
+            r"c:\users\all users"
         )
 
         if normalized.startswith(ignored_profiles):
@@ -231,100 +283,81 @@ class DownloadHandler(FileSystemEventHandler):
 
         # Only process files created inside a Downloads folder
         parts = normalized.split(os.sep)
-
         if "downloads" not in parts:
             return
 
+        # Skip temporary browser files
         if path.lower().endswith((".tmp", ".temp", ".crdownload", ".part", ".cache", ".log")):
             return
-        time.sleep(10)
 
+        # INSTANT ACTION: Put path in queue and return immediately!
+        download_queue.put(path)
+
+def process_download_worker():
+    """Background thread that safely waits for downloads to finish and hashes them."""
+    while True:
         try:
-            if not os.path.exists(path):
-                return
-            size = os.path.getsize(path)
-            if size == 0:
-                return
-        except:
-            return
-        
-        zone = None
-        try:
-            with open(path + ":Zone.Identifier") as f:
-                zone = f.read()
-        except:
-            pass
-
-
-        if not zone :
-            return
-
-        sha = hashlib.sha256()
-        try:
-            with open(path, "rb") as f:
-                for block in iter(lambda: f.read(8192), b""):
-                    sha.update(block)
-            hash_value = sha.hexdigest()
-        except:
-            hash_value = None
-
-        payload = {
-    "event_id": get_next_event_id(),
-    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-    "type": "DOWNLOAD_DETECTED",
-    "file_name": os.path.basename(path),
-    "path": path,
-    "file_size": size,
-    "sha256": hash_value,
-    "zone_data":zone,
-    "network_connections" :len(psutil.net_connections("inet")),
-    "message": f"Downloaded file detected: {os.path.basename(path)}"
-        }
-      
-        event_queue.put(payload)
-        write_to_log_file(payload)
-
-
-
-# def start_file_monitor():
-#     """Background worker that monitors the Downloads folder for newly downloaded files."""
-#     debug_log("Initializing File Download Monitor...")
-
-#     try:
-#         # 1. Find all legitimate human user download folders on the machine
-#         download_folders = []
-#         for user_dir in glob.glob("C:\\Users\\*"):
-#             # Skip Windows default/system profiles
-#             if not user_dir.endswith(("Public", "Default", "Default User", "All Users")):
-#                 target_path = os.path.join(user_dir, "Downloads")
-#                 if os.path.exists(target_path):
-#                     download_folders.append(target_path)
-
-#         if not download_folders:
-#             debug_log("No active user Downloads folders found to monitor.")
-#             return
-
-#         observer = Observer()
-        
-#         # 2. Schedule the watchdog handler for EVERY user's download directory
-#         for folder in download_folders:
-#             observer.schedule(
-#                 DownloadHandler(),
-#                 folder,
-#                 recursive=False
-#             )
-#             debug_log(f"Watching folder: {folder}")
-
-#         observer.start()
-
-#         while True:
-#             time.sleep(1)
+            path = download_queue.get()
             
-#     except Exception as e:
-#         debug_log(f"Error in file monitor: {str(e)}") 
+            # Wait 5 seconds for the browser to finalize writing the file to disk
+            time.sleep(5)
+
+            if not os.path.exists(path):
+                download_queue.task_done()
+                continue
+
+            try:
+                size = os.path.getsize(path)
+                if size == 0:
+                    download_queue.task_done()
+                    continue
+            except:
+                download_queue.task_done()
+                continue
+
+            # Read Mark-of-the-Web (Zone.Identifier Alternate Data Stream)
+            zone = None
+            try:
+                with open(path + ":Zone.Identifier", "r") as f:
+                    zone = f.read()
+            except:
+                pass
+
+            if not zone:
+                download_queue.task_done()
+                continue
+
+            # Hash the completed download
+            hash_value = get_file_sha256(path)
+
+            payload = {
+                "event_id": get_next_event_id(),
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "type": "DOWNLOAD_DETECTED",
+                "file_name": os.path.basename(path),
+                "path": path,
+                "file_size": size,
+                "sha256": hash_value,
+                "zone_data": zone,
+                "network_connections": len(psutil.net_connections("inet")),
+                "message": f"Downloaded file detected: {os.path.basename(path)}"
+            }
+          
+            event_queue.put(payload)
+            write_to_log_file(payload)
+
+        except Exception as e:
+            debug_log(f"Error processing downloaded file: {e}")
+            
+        finally:
+            download_queue.task_done()
+
 def start_file_monitor():
     """Background worker that monitors all users' Downloads folders."""
     debug_log("Initializing File Download Monitor...")
+
+    # Start the async processing worker in a background thread
+    threading.Thread(target=process_download_worker, daemon=True).start()
 
     try:
         observer = Observer()
@@ -422,7 +455,6 @@ def start_software_monitor(event_queue=None):
     
     return payload
     
-#start _system_monitor and user session monitor 
 def start_system_monitor():
     """Background worker that logs system boot time and monitors user session switches/logins."""
     debug_log("Initializing System & User Session Monitor...")
