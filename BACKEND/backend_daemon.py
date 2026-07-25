@@ -12,6 +12,7 @@ from datetime import datetime
 import win32timezone
 import win32pipe
 import win32file
+import win32security
 import pywintypes
 import json
 
@@ -62,7 +63,19 @@ def listen_for_commands(event_queue):
     It reads from a separate pipe so it never blocks outgoing telemetry.
     """
     pipe_name = r'\\.\pipe\EDR_Commands'
+
+    # 1. Create a permissive Security Descriptor
+    sa = win32security.SECURITY_ATTRIBUTES()
+    sa.bInheritHandle = 1
     
+    # Create a blank security descriptor
+    sd = win32security.SECURITY_DESCRIPTOR()
+    
+    # A NULL DACL grants full access to Everyone. 
+    # (1 = DACL is present, None = DACL is NULL, 0 = Not defaulted)
+    sd.SetSecurityDescriptorDacl(1, None, 0)
+    
+    sa.SECURITY_DESCRIPTOR = sd
     while True:
         try:
             # Create the Command Pipe (Server Side)
@@ -73,7 +86,7 @@ def listen_for_commands(event_queue):
                 win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                 1, 65536, 65536,
                 0,
-                None
+                sa
             )
             
             print(f"[Command Thread] Waiting for GUI to connect to {pipe_name}...")

@@ -958,7 +958,7 @@ class SystemTrayApp(QObject):
             json.loads(text) 
             
             # Route directly to your live event processor
-            self.main_window.process_live_event(text)
+            # self.main_window.process_live_event(text)
             # 1. Parse the raw text string into a Python dictionary
             event = json.loads(text)
             event_type = event.get("type", "")
