@@ -293,12 +293,92 @@ class DownloadHandler(FileSystemEventHandler):
         # INSTANT ACTION: Put path in queue and return immediately!
         download_queue.put(path)
 
+# def process_download_worker():
+#     """Background thread that safely waits for downloads to finish and hashes them."""
+#     while True:
+#         try:
+#             path = download_queue.get()
+            
+#             # Wait 5 seconds for the browser to finalize writing the file to disk
+#             time.sleep(5)
+
+#             if not os.path.exists(path):
+#                 download_queue.task_done()
+#                 continue
+
+#             try:
+#                 size = os.path.getsize(path)
+#                 if size == 0:
+#                     download_queue.task_done()
+#                     continue
+#             except:
+#                 download_queue.task_done()
+#                 continue
+
+#             # Read Mark-of-the-Web (Zone.Identifier Alternate Data Stream)
+#             zone = None
+#             try:
+#                 with open(path + ":Zone.Identifier", "r") as f:
+#                     zone = f.read()
+#             except:
+#                 pass
+
+#             if not zone:
+#                 download_queue.task_done()
+#                 continue
+
+#             # Hash the completed download
+#             hash_value = get_file_sha256(path)
+
+#             payload = {
+#                 "event_id": get_next_event_id(),
+#                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+#                 "type": "DOWNLOAD_DETECTED",
+#                 "file_name": os.path.basename(path),
+#                 "path": path,
+#                 "file_size": size,
+#                 "sha256": hash_value,
+#                 "zone_data": zone,
+#                 "network_connections": len(psutil.net_connections("inet")),
+#                 "message": f"Downloaded file detected: {os.path.basename(path)}"
+#             }
+          
+#             event_queue.put(payload)
+#             write_to_log_file(payload)
+
+#         except Exception as e:
+#             debug_log(f"Error processing downloaded file: {e}")
+            
+#         finally:
+#             download_queue.task_done()
+
+
+# Deduplication Cache: { file_path: last_processed_timestamp }
+PROCESSED_DOWNLOADS = {}
+
 def process_download_worker():
-    """Background thread that safely waits for downloads to finish and hashes them."""
+    """Background thread that safely waits for downloads to finish, deduplicates events, and hashes them."""
+    global PROCESSED_DOWNLOADS
+
     while True:
         try:
             path = download_queue.get()
             
+            # --- DEDUPLICATION CHECK ---
+            current_time = time.time()
+            
+            # Clean up cache entries older than 60 seconds
+            PROCESSED_DOWNLOADS = {
+                p: t for p, t in PROCESSED_DOWNLOADS.items() 
+                if current_time - t < 60
+            }
+
+            # If this file was already logged in the last 30 seconds, drop the duplicate!
+            if path in PROCESSED_DOWNLOADS and (current_time - PROCESSED_DOWNLOADS[path]) < 30:
+                download_queue.task_done()
+                continue
+            # --- END DEDUPLICATION CHECK ---
+
             # Wait 5 seconds for the browser to finalize writing the file to disk
             time.sleep(5)
 
@@ -315,10 +395,10 @@ def process_download_worker():
                 download_queue.task_done()
                 continue
 
-            # Read Mark-of-the-Web (Zone.Identifier Alternate Data Stream)
+            # Read Mark-of-the-Web (Zone.Identifier Alternate Data Stream) safely
             zone = None
             try:
-                with open(path + ":Zone.Identifier", "r") as f:
+                with open(path + ":Zone.Identifier", "r", encoding="utf-8", errors="ignore") as f:
                     zone = f.read()
             except:
                 pass
@@ -342,6 +422,9 @@ def process_download_worker():
                 "network_connections": len(psutil.net_connections("inet")),
                 "message": f"Downloaded file detected: {os.path.basename(path)}"
             }
+
+            # Record that this file has been processed
+            PROCESSED_DOWNLOADS[path] = time.time()
           
             event_queue.put(payload)
             write_to_log_file(payload)
