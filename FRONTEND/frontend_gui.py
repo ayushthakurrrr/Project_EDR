@@ -472,7 +472,7 @@ class MainWindow(QMainWindow):
         self.close_history_btn.setFixedSize(24, 24)
         self.close_history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_history_btn.setStyleSheet("""
-            QPushButton { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 12px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 16px; font-weight: bold; padding-bottom: 2px; } 
+            QPushButton { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 12px; font-family: Arial, sans-serif; font-size: 14px; font-weight: 900; padding: 0px; margin:0px} 
             QPushButton:hover { background-color: #da3633; color: #ffffff; border: 1px solid #da3633; }
             QPushButton:pressed { background-color: #b32d2a; }
         """)
@@ -542,7 +542,7 @@ class MainWindow(QMainWindow):
         self.close_software_btn.setFixedSize(24, 24)
         self.close_software_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_software_btn.setStyleSheet("""
-            QPushButton { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 12px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 16px; font-weight: bold; padding-bottom: 2px; } 
+            QPushButton { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 12px; font-family: Arial, sans-serif; font-size: 14px; font-weight: 900; padding: 0px; margin: 0px} 
             QPushButton:hover { background-color: #da3633; color: #ffffff; border: 1px solid #da3633; }
             QPushButton:pressed { background-color: #b32d2a; }
         """)
@@ -1009,6 +1009,21 @@ class SystemTrayApp(QObject):
     def update_pipe_status(self, connected):
         self.is_connected = connected
         self.refresh_ui()
+
+        # --- NEW: Automatic First Refresh Logic ---
+        # If we successfully connect and haven't done our initial refresh yet
+        if connected and not getattr(self, '_initial_refresh_done', False):
+            # 1. Set the flag so we don't spam the backend every time the connection drops and reconnects
+            self._initial_refresh_done = True
+            
+            # 2. Fire off the command
+            print("[GUI] Pipe connected. Requesting initial software list...")
+            
+            # Note: If send_backend_command is inside your main_window class (like load_softwares), 
+            # call it like this:
+            self.main_window.send_backend_command("REFRESH_SOFTWARE")
+            
+            # (If send_backend_command is in THIS class, just use self.send_backend_command("REFRESH_SOFTWARE"))
 
     def refresh_ui(self):
         if self.is_daemon_running:
