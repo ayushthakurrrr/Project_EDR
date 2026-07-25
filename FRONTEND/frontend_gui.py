@@ -948,46 +948,6 @@ class SystemTrayApp(QObject):
         self.pipe_listener.start()
 
 
-    # def route_message(self, text):
-    #     """
-    #     Processes live events like INSTALLER_DETECTED or PROCESS_EVENT.
-    #     (Software lists are now handled directly by the software_list_received signal).
-    #     """
-    #     try:
-    #         # Just verify it's valid JSON before passing it to the UI
-    #         json.loads(text) 
-            
-    #         # Route directly to your live event processor
-    #         self.main_window.process_live_event(text)
-    #         # 1. Parse the raw text string into a Python dictionary
-    #         event = json.loads(text)
-    #         event_type = event.get("type", "")
-
-    #         # print(event)
-    #         # 2. Check the type and route accordingly
-    #         if event_type == "SOFTWARE_LIST":
-    #             # Direct it to your new software tab handler
-    #             self.main_window.load_softwares(text)
-                
-    #         # --- boot and switch user ---
-    #         elif event_type == "SYSTEM_BOOT_INFO":
-    #             boot_time = event.get("boot_time", "Unknown")
-    #             self.main_window.update_boot_ui(boot_time)
-    #             self.main_window.process_live_event(text)
-                
-    #         elif event_type in ("USER_SESSION_STARTED", "USER_SESSION_ENDED"):
-    #             active_users = event.get("active_users", [])
-    #             self.main_window.update_users_ui(active_users)
-    #             # Pass to live table so the login/logout is visually logged
-    #             self.main_window.process_live_event(text)
-                
-    #         else:
-    #             # Send everything else (INSTALLER_DETECTED, NETWORK_CONNECTION, etc.) 
-    #             # to the original live event processor
-    #             self.main_window.process_live_event(text)
-
-    #     except json.JSONDecodeError:
-    #         print(f"Received malformed text over the pipe that wasn't valid JSON: {text}")
 
     def route_message(self, text):
         """
