@@ -15,9 +15,11 @@ import win32pipe
 import win32file
 import pywintypes
 import json
+import psutil
+
 
 # Import your newly separated modules
-from backend_ipc import start_ipc_server, get_next_event_id, event_queue
+from backend_ipc import start_ipc_server, get_next_event_id, event_queue,write_to_log_file
 from backend_telemetry import (
     start_wmi_monitor, 
     start_file_monitor, 
@@ -57,6 +59,70 @@ h = DailySizeHandler()
 h.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 logger.addHandler(h)
 
+def kill_process(pid):
+    try:
+        process = psutil.Process(int(pid))
+
+        process.kill()
+
+        return {
+            "success": True,
+            "pid": pid,
+            "result": "PROCESS_KILLED"
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "pid": pid,
+            "error": str(e)
+        }
+def stop_process(pid):
+    try:
+        process = psutil.Process(int(pid))
+
+        process.terminate()
+
+        return {
+            "success": True,
+            "pid": pid,
+            "result": "PROCESS_STOPPED"
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "pid": pid,
+            "error": str(e)
+        }
+
+
+def restart_process(pid):
+    try:
+        process = psutil.Process(int(pid))
+
+        exe = process.exe()
+
+        process.kill()
+
+        time.sleep(1)
+
+        new_process = psutil.Popen(exe)
+
+        return {
+            "success": True,
+            "pid": new_process.pid,
+            "result": "PROCESS_RESTARTED"
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "pid": pid,
+            "error": str(e)
+        }
+
+    
 def listen_for_commands(event_queue):
     """
     Dedicated thread to listen for incoming commands from the PyQt GUI.
@@ -92,15 +158,57 @@ def listen_for_commands(event_queue):
                         command_dict = json.loads(command_str)
                         
                         action = command_dict.get("action")
+                        response = None
                         
                         # Route the incoming commands
+                        # if action == "REFRESH_SOFTWARE":
+                        #     print("[Command Thread] Received REFRESH_SOFTWARE command from GUI.")
+                            
+                        #     # Trigger your software scanner!
+                        #     # It will scan the registry and drop the payload directly into event_queue
+                        #     start_software_monitor(event_queue)
                         if action == "REFRESH_SOFTWARE":
-                            print("[Command Thread] Received REFRESH_SOFTWARE command from GUI.")
+                           print(  "[Command Thread] REFRESH_SOFTWARE")
+                           start_software_monitor(event_queue)
+
+                        elif action == "KILL_PROCESS":
+                           pid = command_dict.get("pid")
+                           print(f"[Command Thread] Kill PID {pid}")
+                           response = kill_process(pid)
+
+
+                        elif action == "STOP_PROCESS":
+                           pid = command_dict.get("pid")
+                           print(f"[Command Thread] Stop PID {pid}")
+                           response = stop_process(pid)
+
+
+                        elif action == "RESTART_PROCESS":
+                           pid = command_dict.get("pid")
+                           print(f"[Command Thread] Restart PID {pid}")
+                           response = restart_process(pid)  
+
+
+                        if response:
+                            incident_payload = {
+                            "event_id": get_next_event_id(),
+                            "type": "INCIDENT_RESPONSE",
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "action": action,
+                            "pid": command_dict.get("pid"),
+                            "response": response,
+                            "status": "SUCCESS" if response.get("success") else "FAILED",
+                            "message": response.get("result", response.get("error"))
+                        }
+
+                        # Send to GUI
+                        event_queue.put(incident_payload)
+ 
+                        # Write into agent log
+                        write_to_log_file(incident_payload)
+
                             
-                            # Trigger your software scanner!
-                            # It will scan the registry and drop the payload directly into event_queue
-                            start_software_monitor(event_queue)
-                            
+                          
                 except pywintypes.error as e:
                     # Error 109 means the GUI disconnected (e.g., app was closed)
                     if e.args[0] == 109: 
@@ -109,6 +217,7 @@ def listen_for_commands(event_queue):
                     else:
                         print(f"[Command Thread] Read error: {e}")
                         break
+
                         
         except Exception as e:
             print(f"[Command Thread] Pipe creation error: {e}")

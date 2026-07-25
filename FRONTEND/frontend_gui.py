@@ -177,14 +177,18 @@ class MainWindow(QMainWindow):
         # --
         self.hide()
 
-    def send_backend_command(self, action_name):
+    def send_backend_command(self, action,pid=None):
         """
         Opens the command pipe, sends a JSON command, and closes the pipe.
         """
         import win32file, pywintypes, json  # Ensure these are imported at the top of your file
         
         pipe_name = r'\\.\pipe\EDR_Commands'
-        payload = {"action": action_name}
+        # payload = {"action": action_name}
+        payload = {
+        "action": action,
+        "pid": pid
+        }
         payload_str = json.dumps(payload)
         
         try:
@@ -193,7 +197,7 @@ class MainWindow(QMainWindow):
             )
             win32file.WriteFile(handle, payload_str.encode('utf-8'))
             win32file.CloseHandle(handle)
-            print(f"[GUI] Sent command to backend: {action_name}")
+            print(f"[GUI] Sent command to backend: {action} PID : {pid}")
             
         except pywintypes.error as e:
             print(f"[GUI] Failed to send command. Is backend listening? Error: {e}")
@@ -304,7 +308,7 @@ class MainWindow(QMainWindow):
 
     def create_event_table(self):
         table = QTableWidget(0, 5)
-        table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS"])
+        table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS","STATUS"])
         
         # --- HORIZONTAL ---
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -323,6 +327,8 @@ class MainWindow(QMainWindow):
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
         table.setShowGrid(False)
+
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         return table
 
     def setup_live_tab(self):
@@ -417,6 +423,8 @@ class MainWindow(QMainWindow):
         
         # Add the splitter to the main layout instead of adding the table and frame separately
         layout.addWidget(self.main_splitter)
+
+        self.live_table.customContextMenuRequested.connect(self.show_live_context_menu)
         
         self.live_terminal_frame.hide()
         
@@ -872,14 +880,74 @@ class MainWindow(QMainWindow):
                 
                 if filter_text == "All Events":
                     hide_row = False
-                elif filter_text == "High Severity Only" and severity_text != "high":
+                elif filter_text == "High Severity" and severity_text != "high":
                     hide_row = True
-                elif filter_text == "Medium Severity Only" and severity_text != "medium":
+                elif filter_text == "Medium Severity" and severity_text != "medium":
                     hide_row = True
-                elif filter_text == "Low Severity Only" and severity_text != "low":
+                elif filter_text == "Low Severity" and severity_text != "low":
                     hide_row = True
 
                 self.live_table.setRowHidden(row, hide_row)
+
+    def show_live_context_menu(self, position):
+
+        item = self.live_table.itemAt(position)
+        if not item:
+            return
+        row = item.row()
+        first_item = self.live_table.item(row, 0)
+
+        raw_json = first_item.data(Qt.ItemDataRole.UserRole)
+
+        if not raw_json:
+           return
+
+        try:
+            event = json.loads(raw_json)
+        except:
+            return
+
+        pid = event.get("pid")
+        process_name = event.get("process_name", "Unknown")
+        menu = QMenu(self)
+
+        kill_action = QAction(
+            f"Kill Process ({process_name})",
+            self
+        )
+
+        kill_action.triggered.connect(
+            lambda: self.send_backend_command(
+               "KILL_PROCESS",
+                pid
+            )
+        )
+
+
+        restart_action = QAction(
+            f"Restart Process ({process_name})",self
+        )
+
+        restart_action.triggered.connect(
+            lambda: self.send_backend_command( "RESTART_PROCESS",pid))
+
+
+        stop_action = QAction( f"Stop Process ({process_name})",self)
+        stop_action.triggered.connect(lambda: self.send_backend_command("STOP_PROCESS",pid)
+    )
+
+        menu.addAction(kill_action)
+        menu.addAction(stop_action)
+        menu.addAction(restart_action)
+
+        menu.addSeparator()
+
+
+        details_action = QAction("View Details",self)
+        details_action.triggered.connect(lambda: self.show_row_details(item))
+
+        menu.addAction(details_action)
+        menu.exec(   self.live_table.viewport().mapToGlobal(position))
 
 class SystemTrayApp(QObject):
     def __init__(self, app):
@@ -958,7 +1026,7 @@ class SystemTrayApp(QObject):
             json.loads(text) 
             
             # Route directly to your live event processor
-            self.main_window.process_live_event(text)
+            # self.main_window.process_live_event(text)
             # 1. Parse the raw text string into a Python dictionary
             event = json.loads(text)
             event_type = event.get("type", "")
