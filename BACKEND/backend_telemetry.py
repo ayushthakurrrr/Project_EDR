@@ -18,6 +18,8 @@ from backend_ipc import (
     get_allow_list
 )
 
+from threat_detection import evaluate_threat_locally
+
 # --- NEW: Forensic Caching Engine ---
 # In-memory LRU-style Hash Cache: { file_path: (mtime, sha256_hash) }
 HASH_CACHE = {}
@@ -127,6 +129,9 @@ def start_wmi_monitor():
                 "sha256": process_hash,        
                 "message": f"Process {process_name} (PID: {process_id}) spawned by {parent_name} (PID: {parent_id})."
             }
+
+            # --- THREAT INTELLIGENCE CHECK ---
+            payload = evaluate_threat_locally(payload)
             
             event_queue.put(payload)
             write_to_log_file(payload)
@@ -179,6 +184,8 @@ def start_network_monitor():
                             "local_port": conn.laddr.port,
                             "message": f"{proc_name} (PID: {conn.pid}) established connection to {remote_ip}:{remote_port}"
                         }
+
+                        payload = evaluate_threat_locally(payload)    #<------threat intelligence check
                         
                         event_queue.put(payload)
                         write_to_log_file(payload)
@@ -250,6 +257,8 @@ def start_registry_monitor():
                         "key_value": value,
                         "message": f"Suspicious Registry Run key added: {name} -> {value}"
                     }
+
+                     payload = evaluate_threat_locally(payload)  #<------threat intelligence check
                 
                      event_queue.put(payload)
                      write_to_log_file(payload)
@@ -367,6 +376,8 @@ def process_download_worker():
 
             # Record that this file has been processed
             PROCESSED_DOWNLOADS[path] = time.time()
+
+            payload = evaluate_threat_locally(payload) #<------threat intelligence check
           
             event_queue.put(payload)
             write_to_log_file(payload)
