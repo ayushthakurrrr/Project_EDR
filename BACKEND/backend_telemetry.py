@@ -9,6 +9,21 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import glob
 
+PROCESS_STATUS = {}
+PROCESS_LOCK = threading.Lock()
+
+
+def update_process_status(pid, name, state):
+    with PROCESS_LOCK:
+        PROCESS_STATUS[str(pid)] = {
+            "pid": pid,
+            "process_name": name,
+            "status": state,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    return
+
 # Import shared resources from your upcoming utilities file
 from backend_ipc import (
     event_queue,
@@ -125,6 +140,7 @@ def start_wmi_monitor():
                 "path": executable_path,
                 "command_line": command_line,  
                 "sha256": process_hash,        
+                "status": "RUNNING",
                 "message": f"Process {process_name} (PID: {process_id}) spawned by {parent_name} (PID: {parent_id})."
             }
             
@@ -177,9 +193,10 @@ def start_network_monitor():
                             "remote_ip": remote_ip,
                             "remote_port": remote_port,
                             "local_port": conn.laddr.port,
+                            "status": "RUNNING",
                             "message": f"{proc_name} (PID: {conn.pid}) established connection to {remote_ip}:{remote_port}"
                         }
-                        
+
                         event_queue.put(payload)
                         write_to_log_file(payload)
             

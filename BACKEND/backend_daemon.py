@@ -26,7 +26,7 @@ from backend_telemetry import (
     start_network_monitor, 
     start_registry_monitor,
     start_software_monitor,
-    start_system_monitor
+    start_system_monitor,
 )
 
 # Define paths and logging
@@ -64,14 +64,17 @@ def kill_process(pid):
         process = psutil.Process(int(pid))
 
         process.kill()
+        process_name = process.name()
 
         return {
-            "success": True,
-            "pid": pid,
-            "result": "PROCESS_KILLED"
-        }
+    "success": True,
+    "pid": pid,
+    "result": "KILLED",
+    "state": "KILLED"
+}
 
     except Exception as e:
+        print("[KILL ERROR]", e)
         return {
             "success": False,
             "pid": pid,
@@ -82,11 +85,13 @@ def stop_process(pid):
         process = psutil.Process(int(pid))
 
         process.terminate()
+        process_name = process.name()
 
         return {
             "success": True,
             "pid": pid,
-            "result": "PROCESS_STOPPED"
+            "result": "STOPPED",
+            "state": "STOPPED"
         }
 
     except Exception as e:
@@ -101,6 +106,7 @@ def restart_process(pid):
     try:
         process = psutil.Process(int(pid))
 
+        old_name = process.name()
         exe = process.exe()
 
         process.kill()
@@ -111,8 +117,10 @@ def restart_process(pid):
 
         return {
             "success": True,
-            "pid": new_process.pid,
-            "result": "PROCESS_RESTARTED"
+            "old_pid": pid,
+            "new_pid": new_process.pid,
+            "result": "PROCESS_RESTARTED",
+            "state": "RUNNING"
         }
 
     except Exception as e:
@@ -190,22 +198,27 @@ def listen_for_commands(event_queue):
 
 
                         if response:
-                            incident_payload = {
-                            "event_id": get_next_event_id(),
-                            "type": "INCIDENT_RESPONSE",
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "action": action,
-                            "pid": command_dict.get("pid"),
-                            "response": response,
-                            "status": "SUCCESS" if response.get("success") else "FAILED",
-                            "message": response.get("result", response.get("error"))
-                        }
 
-                        # Send to GUI
-                        event_queue.put(incident_payload)
- 
-                        # Write into agent log
-                        write_to_log_file(incident_payload)
+                            incident_payload = {
+                           "event_id": get_next_event_id(),
+                           "type": "INCIDENT_RESPONSE",
+                           "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                           "action": action,
+                            "pid": str(command_dict.get("pid")),
+                            # "status": "SUCCESS" if response.get("success") else "FAILED",
+                                "status": response.get("result") if response.get("success") else "FAILED",
+                            "message": response.get(
+                            "result",
+                             response.get("error", "UNKNOWN")
+                            )}
+
+                            print("[BACKEND] Sending incident response:")
+                            print(json.dumps(incident_payload, indent=4))
+
+                            # Send to GUI
+                            event_queue.put(incident_payload)
+                            # Write into log
+                            write_to_log_file(incident_payload)
 
                             
                           

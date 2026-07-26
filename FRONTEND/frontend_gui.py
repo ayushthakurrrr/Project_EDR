@@ -160,6 +160,7 @@ class MainWindow(QMainWindow):
         self.footer_layout.addWidget(self.alerts_label)
         self.footer_layout.addWidget(self.hostname_label)
         main_layout.addLayout(self.footer_layout)
+        self.pending_actions = {}
 
         self.total_alerts = 0
         self.history_events = []
@@ -197,7 +198,9 @@ class MainWindow(QMainWindow):
             )
             win32file.WriteFile(handle, payload_str.encode('utf-8'))
             win32file.CloseHandle(handle)
-            print(f"[GUI] Sent command to backend: {action} PID : {pid}")
+            if pid:
+                self.pending_actions[str(pid)] = action
+                print(f"[GUI] Sent command to backend: {action} PID : {pid}")
             
         except pywintypes.error as e:
             print(f"[GUI] Failed to send command. Is backend listening? Error: {e}")
@@ -307,8 +310,8 @@ class MainWindow(QMainWindow):
     #above in both switch and boot time update
 
     def create_event_table(self):
-        table = QTableWidget(0, 5)
-        table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS","STATUS"])
+        table = QTableWidget(0, 6)
+        table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "STATUS","DETAILS"])
         
         # --- HORIZONTAL ---
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -806,11 +809,18 @@ class MainWindow(QMainWindow):
                ],
              )
             ) or "N/A"
+
+            status = event.get("status","")
+
+            if e_type in ["INCIDENT_RESPONSE","PROCESS_STATUS_UPDATE"]:
+                status = event.get("status","UNKNOWN")
+
             items = [
                 QTableWidgetItem(event.get("timestamp", "")),
                 QTableWidgetItem(severity),
                 QTableWidgetItem(e_type),
                 QTableWidgetItem(proc_details),
+                QTableWidgetItem(status),
                 QTableWidgetItem(event.get("message", ""))
             ]
 
@@ -894,13 +904,12 @@ class MainWindow(QMainWindow):
         item = self.live_table.itemAt(position)
         if not item:
             return
-        row = item.row()
-        first_item = self.live_table.item(row, 0)
 
-        raw_json = first_item.data(Qt.ItemDataRole.UserRole)
+        row = item.row()
+        raw_json = self.live_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
         if not raw_json:
-           return
+            return
 
         try:
             event = json.loads(raw_json)
@@ -908,46 +917,91 @@ class MainWindow(QMainWindow):
             return
 
         pid = event.get("pid")
-        process_name = event.get("process_name", "Unknown")
+        process_name = event.get("process_name")
+
         menu = QMenu(self)
+        status_item = self.live_table.item(row, 4)  # STATUS column
+        current_status = status_item.text().upper() if status_item else ""
 
-        kill_action = QAction(
-            f"Kill Process ({process_name})",
-            self
-        )
+    # Only show process actions if a PID exists
+        if pid and process_name and current_status not in ("KILLED", "STOPPED"):
 
-        kill_action.triggered.connect(
-            lambda: self.send_backend_command(
-               "KILL_PROCESS",
-                pid
+            kill_action = QAction(f"Kill Process ({process_name})", self)
+            kill_action.triggered.connect(
+                lambda: self.send_backend_command("KILL_PROCESS", pid)
             )
-        )
+            menu.addAction(kill_action)
 
+            stop_action = QAction(f"Stop Process ({process_name})", self)
+            stop_action.triggered.connect(
+                lambda: self.send_backend_command("STOP_PROCESS", pid)
+            )
+            menu.addAction(stop_action)
 
-        restart_action = QAction(
-            f"Restart Process ({process_name})",self
-        )
+            restart_action = QAction(f"Restart Process ({process_name})", self)
+            restart_action.triggered.connect(
+                lambda: self.send_backend_command("RESTART_PROCESS", pid)
+            )
+            menu.addAction(restart_action)
 
-        restart_action.triggered.connect(
-            lambda: self.send_backend_command( "RESTART_PROCESS",pid))
+            menu.addSeparator()
 
-
-        stop_action = QAction( f"Stop Process ({process_name})",self)
-        stop_action.triggered.connect(lambda: self.send_backend_command("STOP_PROCESS",pid)
-    )
-
-        menu.addAction(kill_action)
-        menu.addAction(stop_action)
-        menu.addAction(restart_action)
-
-        menu.addSeparator()
-
-
-        details_action = QAction("View Details",self)
+        details_action = QAction("View Details", self)
         details_action.triggered.connect(lambda: self.show_row_details(item))
-
         menu.addAction(details_action)
-        menu.exec(   self.live_table.viewport().mapToGlobal(position))
+
+        menu.exec(self.live_table.viewport().mapToGlobal(position))
+  
+    def update_incident_status(self, pid, status):
+
+        pid = str(pid)
+
+        for row in range(self.live_table.rowCount()):
+
+            process_item = self.live_table.item(row, 3)
+
+            if not process_item:
+                continue
+
+            process_text = process_item.text()
+
+            if f"PID: {pid}" in process_text:
+
+                status_item = self.live_table.item(row, 4)
+
+                if status_item:
+
+                    status_item.setText(status)
+
+                    if status.upper() == "RUNNING":
+
+                        status_item.setForeground(
+                        QColor("#3fb950")
+                    )
+
+                    elif status.upper() in [
+                    "STOPPED",
+                    "KILLED"
+                ]:
+
+                        status_item.setForeground(
+                        QColor("#ff7b72")
+                    )
+
+                    elif status.upper() == "SUCCESS":
+
+                        status_item.setForeground(
+                        QColor("#3fb950")
+                    )
+
+                    else:
+
+                        status_item.setForeground(
+                        QColor("#d29922")
+                    )
+
+
+                return
 
 class SystemTrayApp(QObject):
     def __init__(self, app):
@@ -1050,7 +1104,17 @@ class SystemTrayApp(QObject):
             else:
                 # Send everything else (DOWNLOAD_DETECTED, PROCESS_CREATION, NETWORK_CONNECTION, etc.)
                 # to the live event processor ONCE!
-                self.main_window.process_live_event(text)
+                if event_type == "INCIDENT_RESPONSE":
+                    pid = str(event.get("pid", ""))
+                    status = event.get("status", "UNKNOWN")
+
+                    self.main_window.update_incident_status(pid, status)
+                    return
+                    
+                    
+                else:
+                    self.main_window.process_live_event(text)
+                
 
         except json.JSONDecodeError:
             print(f"Received malformed text over the pipe that wasn't valid JSON: {text}")
