@@ -77,8 +77,8 @@ class LiveStreamTab(QWidget):
                 self.live_table.setRowHidden(row, hide_row)
 
     def create_event_table(self):
-        table = QTableWidget(0, 5)
-        table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "DETAILS","STATUS"])
+        table = QTableWidget(0, 6)
+        table.setHorizontalHeaderLabels(["TIMESTAMP", "SEVERITY", "EVENT TYPE", "PROCESS / PATH", "STATUS","DETAILS"])
         
         # --- HORIZONTAL ---
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -122,33 +122,38 @@ class LiveStreamTab(QWidget):
         process_name = event.get("process_name", "Unknown")
         menu = QMenu(self)
 
-        kill_action = QAction(
-            f"Kill Process ({process_name})",
-            self
-        )
+        status_item = self.live_table.item(row, 4)  # STATUS column
+        current_status = status_item.text().upper() if status_item else ""
 
-        kill_action.triggered.connect(
-            lambda: send_backend_command(
-                "KILL_PROCESS",
-                pid
+        # Only show process actions if a PID exists
+        if pid and process_name and current_status not in ("KILLED", "STOPPED"):
+
+            kill_action = QAction(
+                f"Kill Process ({process_name})",
+                self
             )
+
+            kill_action.triggered.connect(
+                lambda: send_backend_command(
+                    "KILL_PROCESS",
+                    pid
+                )
+            )
+            restart_action = QAction(
+                f"Restart Process ({process_name})",self
+            )
+
+            restart_action.triggered.connect(
+                lambda: send_backend_command( "RESTART_PROCESS",pid))
+
+            stop_action = QAction( f"Stop Process ({process_name})",self)
+            stop_action.triggered.connect(lambda: send_backend_command("STOP_PROCESS",pid)
         )
 
-        restart_action = QAction(
-            f"Restart Process ({process_name})",self
-        )
-
-        restart_action.triggered.connect(
-            lambda: send_backend_command( "RESTART_PROCESS",pid))
-
-        stop_action = QAction( f"Stop Process ({process_name})",self)
-        stop_action.triggered.connect(lambda: send_backend_command("STOP_PROCESS",pid)
-    )
-
-        menu.addAction(kill_action)
-        menu.addAction(stop_action)
-        menu.addAction(restart_action)
-        menu.addSeparator()
+            menu.addAction(kill_action)
+            menu.addAction(stop_action)
+            menu.addAction(restart_action)
+            menu.addSeparator()
 
         details_action = QAction("View Details",self)
         details_action.triggered.connect(
@@ -156,7 +161,7 @@ class LiveStreamTab(QWidget):
         )
 
         menu.addAction(details_action)
-        menu.exec(   self.live_table.viewport().mapToGlobal(position))
+        menu.exec(self.live_table.viewport().mapToGlobal(position))
 
     def add_row_to_table(self, text):
         """Parses JSON text and adds a colored row to the Live stream table."""
@@ -240,3 +245,29 @@ class LiveStreamTab(QWidget):
             
         except json.JSONDecodeError:
             pass
+
+    def update_incident_status(self, pid, status):
+        """Updates the status column for a specific PID in the live table."""
+        pid = str(pid)
+
+        for row in range(self.live_table.rowCount()):
+            process_item = self.live_table.item(row, 3)
+            
+            if not process_item:
+                continue
+
+            process_text = process_item.text()
+            if f"PID: {pid}" in process_text:
+                status_item = self.live_table.item(row, 4)
+
+                if status_item:
+                    status_item.setText(status)
+                    if status.upper() == "RUNNING":
+                        status_item.setForeground(QColor("#3fb950"))
+                    elif status.upper() in ["STOPPED", "KILLED"]:
+                        status_item.setForeground(QColor("#ff7b72"))
+                    elif status.upper() == "SUCCESS":
+                        status_item.setForeground(QColor("#3fb950"))
+                    else:
+                        status_item.setForeground(QColor("#d29922"))
+                return

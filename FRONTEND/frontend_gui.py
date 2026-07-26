@@ -83,25 +83,46 @@ class SystemTrayApp(QObject):
         self.pipe_listener.start()
 
     def route_message(self, text):
-        """Processes live events and routes them to the MainWindow."""
+        """
+        Processes live events like INSTALLER_DETECTED or PROCESS_EVENT without duplicating rows.
+        """
         try:
             event = json.loads(text)
             event_type = event.get("type", "")
 
-            # Route specialized events
-            if event_type == "SYSTEM_BOOT_INFO":
+            # Check the type and route directly to the specific TAB via main_window
+            if event_type == "SOFTWARE_LIST":
+                # Route to the tab that handles installed software
+                self.main_window.softwares_tab.load_softwares(event.get("software_list", []))
+                
+            # --- Boot and Switch User UI Updates ---
+            elif event_type == "SYSTEM_BOOT_INFO":
                 boot_time = event.get("boot_time", "Unknown")
                 self.main_window.update_boot_ui(boot_time)
+                # Send the raw event to the live stream tab
+                self.main_window.process_live_event(text)
                 
             elif event_type in ("USER_SESSION_STARTED", "USER_SESSION_ENDED"):
                 active_users = event.get("active_users", [])
                 self.main_window.update_users_ui(active_users)
-
-            # Route ALL events (including boot/user info) to the Live Stream tab
-            self.main_window.process_live_event(text)
+                # Send the raw event to the live stream tab
+                self.main_window.process_live_event(text)
+                
+            else:
+                # Handle incident response status updates
+                if event_type == "INCIDENT_RESPONSE":
+                    pid = str(event.get("pid", ""))
+                    status = event.get("status", "UNKNOWN")
+                    self.main_window.live_tab.update_incident_status(pid, status)
+                    return
+                    
+                else:
+                    # Send everything else (DOWNLOAD_DETECTED, PROCESS_CREATION, etc.)
+                    # directly to the live event processor in the LiveStreamTab
+                    self.main_window.process_live_event(text)
 
         except json.JSONDecodeError:
-            print(f"Received malformed text over the pipe: {text}")
+            print(f"Received malformed text over the pipe that wasn't valid JSON: {text}")
 
     def poll_daemon_status(self):
         """Dynamically checks if the backend daemon is alive."""

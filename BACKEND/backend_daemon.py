@@ -201,7 +201,6 @@ def listen_for_commands(event_queue):
                            print(f"[Command Thread] Restart PID {pid}")
                            response = restart_process(pid)  
 
-
                         if response:
                             incident_payload = {
                             "event_id": get_next_event_id(),
@@ -214,11 +213,11 @@ def listen_for_commands(event_queue):
                             "message": response.get("result", response.get("error"))
                         }
 
-                        # Send to GUI
-                        event_queue.put(incident_payload)
- 
-                        # Write into agent log
-                        write_to_log_file(incident_payload)
+                            # Send to GUI
+                            event_queue.put(incident_payload)
+    
+                            # Write into agent log
+                            write_to_log_file(incident_payload)
 
                             
                           
