@@ -183,7 +183,24 @@ class LiveStreamTab(QWidget):
 
             # Modern Enterprise Colors (Subtle backgrounds, bright text)
             e_type = event.get("type", "")
-            if e_type in ["INSTALLER_DETECTED", "PERSISTENCE_DETECTED", "DOWNLOAD_DETECTED"]:
+
+            engine_severity = event.get("severity", "").upper()
+            
+            if engine_severity == "CRITICAL":
+                severity = "CRITICAL"
+                bg_color = QColor("#5a0000")  # Intense Dark Red Background
+                text_color = QColor("#ff6666") # Bright Alert Red Text
+            elif engine_severity == "HIGH":
+                severity = "HIGH"
+                bg_color = QColor("#4d1f00")  # Dark Orange/Brown Background
+                text_color = QColor("#ff9933") # Bright Orange Text
+            elif engine_severity == "MEDIUM":
+                severity = "MEDIUM"
+                bg_color = QColor("#3d3301")  # Dark Yellow Background
+                text_color = QColor("#e3b341") # Bright Yellow Text
+
+            # 2. Fallback to default Event Type coloring if Threat Engine didn't flag it
+            elif e_type in ["INSTALLER_DETECTED", "PERSISTENCE_DETECTED", "DOWNLOAD_DETECTED"]:
                 severity = "High"
                 bg_color = QColor("#490202")  # Deep red background
                 text_color = QColor("#ff7b72") # Bright red text
@@ -215,12 +232,18 @@ class LiveStreamTab(QWidget):
                ],
              )
             ) or "N/A"
-            
+
+            status = event.get("status","")
+
+            if e_type in ["INCIDENT_RESPONSE","PROCESS_STATUS_UPDATE"]:
+                status = event.get("status","UNKNOWN")
+
             items = [
                 QTableWidgetItem(event.get("timestamp", "")),
                 QTableWidgetItem(severity),
                 QTableWidgetItem(e_type),
                 QTableWidgetItem(proc_details),
+                QTableWidgetItem(status),
                 QTableWidgetItem(event.get("message", ""))
             ]
 

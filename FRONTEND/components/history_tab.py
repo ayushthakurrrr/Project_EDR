@@ -292,12 +292,13 @@ class HistoryTab(QWidget):
 
     def create_event_table(self):
         """Initializes and formats the history data table."""
-        table = QTableWidget(0, 5)
+        table = QTableWidget(0, 6)
         table.setHorizontalHeaderLabels([
             "TIMESTAMP", 
             "SEVERITY", 
             "EVENT TYPE", 
             "PROCESS / PATH", 
+            "STATUS",
             "DETAILS"
         ])
         

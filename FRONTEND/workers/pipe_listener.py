@@ -67,6 +67,7 @@ def send_backend_command(action,pid=None):
             )
             win32file.WriteFile(handle, payload_str.encode('utf-8'))
             win32file.CloseHandle(handle)
+            
             print(f"[GUI] Sent command to backend: {action} PID : {pid}")
             
         except pywintypes.error as e:
