@@ -9,6 +9,21 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import glob
 
+PROCESS_STATUS = {}
+PROCESS_LOCK = threading.Lock()
+
+
+def update_process_status(pid, name, state):
+    with PROCESS_LOCK:
+        PROCESS_STATUS[str(pid)] = {
+            "pid": pid,
+            "process_name": name,
+            "status": state,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    return
+
 # Import shared resources from your upcoming utilities file
 from backend_ipc import (
     event_queue,
@@ -17,6 +32,8 @@ from backend_ipc import (
     get_next_event_id, 
     get_allow_list
 )
+
+from threat_detection import evaluate_threat_locally
 
 # --- NEW: Forensic Caching Engine ---
 # In-memory LRU-style Hash Cache: { file_path: (mtime, sha256_hash) }
@@ -125,8 +142,12 @@ def start_wmi_monitor():
                 "path": executable_path,
                 "command_line": command_line,  
                 "sha256": process_hash,        
+                "status": "RUNNING",
                 "message": f"Process {process_name} (PID: {process_id}) spawned by {parent_name} (PID: {parent_id})."
             }
+
+            # --- THREAT INTELLIGENCE CHECK ---
+            payload = evaluate_threat_locally(payload)
             
             event_queue.put(payload)
             write_to_log_file(payload)
@@ -177,8 +198,11 @@ def start_network_monitor():
                             "remote_ip": remote_ip,
                             "remote_port": remote_port,
                             "local_port": conn.laddr.port,
+                            "status": "RUNNING",
                             "message": f"{proc_name} (PID: {conn.pid}) established connection to {remote_ip}:{remote_port}"
                         }
+
+                        payload = evaluate_threat_locally(payload)    #<------threat intelligence check
                         
                         event_queue.put(payload)
                         write_to_log_file(payload)
@@ -250,6 +274,8 @@ def start_registry_monitor():
                         "key_value": value,
                         "message": f"Suspicious Registry Run key added: {name} -> {value}"
                     }
+
+                     payload = evaluate_threat_locally(payload)  #<------threat intelligence check
                 
                      event_queue.put(payload)
                      write_to_log_file(payload)
@@ -367,6 +393,8 @@ def process_download_worker():
 
             # Record that this file has been processed
             PROCESSED_DOWNLOADS[path] = time.time()
+
+            payload = evaluate_threat_locally(payload) #<------threat intelligence check
           
             event_queue.put(payload)
             write_to_log_file(payload)

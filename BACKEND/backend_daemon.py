@@ -13,22 +13,25 @@ import win32timezone
 from collections import defaultdict  # <--- NEW: Required to group files by date
 import win32pipe
 import win32file
-import win32security
 import pywintypes
 import json
 import psutil
+import win32security
 
 
 # Import your newly separated modules
-from backend_ipc import start_ipc_server, get_next_event_id, event_queue,write_to_log_file
+from backend_ipc import start_ipc_server, get_next_event_id, event_queue, write_to_log_file
 from backend_telemetry import (
     start_wmi_monitor, 
     start_file_monitor, 
     start_network_monitor, 
     start_registry_monitor,
     start_software_monitor,
-    start_system_monitor
+    start_system_monitor,
 )
+
+# ---> ADD THIS LINE <---
+from threat_detection import start_threat_intel_updater
 
 # Define paths and logging
 BASE = os.path.join(os.getenv("PROGRAMDATA", r"C:\ProgramData"), "EdrAgent")
@@ -65,14 +68,17 @@ def kill_process(pid):
         process = psutil.Process(int(pid))
 
         process.kill()
+        process_name = process.name()
 
         return {
-            "success": True,
-            "pid": pid,
-            "result": "PROCESS_KILLED"
-        }
+    "success": True,
+    "pid": pid,
+    "result": "KILLED",
+    "state": "KILLED"
+}
 
     except Exception as e:
+        print("[KILL ERROR]", e)
         return {
             "success": False,
             "pid": pid,
@@ -83,11 +89,13 @@ def stop_process(pid):
         process = psutil.Process(int(pid))
 
         process.terminate()
+        process_name = process.name()
 
         return {
             "success": True,
             "pid": pid,
-            "result": "PROCESS_STOPPED"
+            "result": "STOPPED",
+            "state": "STOPPED"
         }
 
     except Exception as e:
@@ -102,6 +110,7 @@ def restart_process(pid):
     try:
         process = psutil.Process(int(pid))
 
+        old_name = process.name()
         exe = process.exe()
 
         process.kill()
@@ -112,8 +121,10 @@ def restart_process(pid):
 
         return {
             "success": True,
-            "pid": new_process.pid,
-            "result": "PROCESS_RESTARTED"
+            "old_pid": pid,
+            "new_pid": new_process.pid,
+            "result": "PROCESS_RESTARTED",
+            "state": "RUNNING"
         }
 
     except Exception as e:
@@ -130,21 +141,22 @@ def listen_for_commands(event_queue):
     It reads from a separate pipe so it never blocks outgoing telemetry.
     """
     pipe_name = r'\\.\pipe\EDR_Commands'
-
-    # 1. Create a permissive Security Descriptor
-    sa = win32security.SECURITY_ATTRIBUTES()
-    sa.bInheritHandle = 1
     
-    # Create a blank security descriptor
-    sd = win32security.SECURITY_DESCRIPTOR()
-    
-    # A NULL DACL grants full access to Everyone. 
-    # (1 = DACL is present, None = DACL is NULL, 0 = Not defaulted)
-    sd.SetSecurityDescriptorDacl(1, None, 0)
-    
-    sa.SECURITY_DESCRIPTOR = sd
     while True:
         try:
+            # 1. Create a permissive Security Descriptor
+            sa = win32security.SECURITY_ATTRIBUTES()
+            sa.bInheritHandle = 1
+            
+            # Create a blank security descriptor
+            sd = win32security.SECURITY_DESCRIPTOR()
+            
+            # A NULL DACL grants full access to Everyone. 
+            # (1 = DACL is present, None = DACL is NULL, 0 = Not defaulted)
+            sd.SetSecurityDescriptorDacl(1, None, 0)
+            
+            sa.SECURITY_DESCRIPTOR = sd
+            
             # Create the Command Pipe (Server Side)
             # PIPE_ACCESS_INBOUND ensures the backend can only READ from this pipe.
             pipe = win32pipe.CreateNamedPipe(
@@ -159,7 +171,8 @@ def listen_for_commands(event_queue):
             print(f"[Command Thread] Waiting for GUI to connect to {pipe_name}...")
             win32pipe.ConnectNamedPipe(pipe, None)
             print("[Command Thread] GUI connected. Listening...")
-            
+
+            write_to_log_file(event_queue)
             while True:
                 try:
                     # This is a synchronous, blocking read. 
@@ -201,22 +214,28 @@ def listen_for_commands(event_queue):
                            print(f"[Command Thread] Restart PID {pid}")
                            response = restart_process(pid)  
 
+
                         if response:
+
                             incident_payload = {
-                            "event_id": get_next_event_id(),
-                            "type": "INCIDENT_RESPONSE",
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "action": action,
-                            "pid": command_dict.get("pid"),
-                            "response": response,
-                            "status": "SUCCESS" if response.get("success") else "FAILED",
-                            "message": response.get("result", response.get("error"))
-                        }
+                           "event_id": get_next_event_id(),
+                           "type": "INCIDENT_RESPONSE",
+                           "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                           "action": action,
+                            "pid": str(command_dict.get("pid")),
+                            # "status": "SUCCESS" if response.get("success") else "FAILED",
+                                "status": response.get("result") if response.get("success") else "FAILED",
+                            "message": response.get(
+                            "result",
+                             response.get("error", "UNKNOWN")
+                            )}
+
+                            print("[BACKEND] Sending incident response:")
+                            print(json.dumps(incident_payload, indent=4))
 
                             # Send to GUI
                             event_queue.put(incident_payload)
-    
-                            # Write into agent log
+                            # Write into log
                             write_to_log_file(incident_payload)
 
                             
@@ -319,6 +338,8 @@ class EDRService(win32serviceutil.ServiceFramework):
         # 1. Start core utilities (IPC Named Pipe & Log Archiver)
         threading.Thread(target=start_ipc_server, daemon=True).start()
         threading.Thread(target=archive_worker, daemon=True).start()
+        # ---> ADD THIS LINE <---
+        start_threat_intel_updater()
 
         # 2. Start Data Engines (Dev's Monitors & Raj's File Monitor)
         threading.Thread(target=start_wmi_monitor, daemon=True).start()
@@ -338,6 +359,8 @@ def run_standalone():
     
     threading.Thread(target=start_ipc_server, daemon=True).start()
     threading.Thread(target=archive_worker, daemon=True).start()
+    # ---> ADD THIS LINE <---
+    start_threat_intel_updater()
     threading.Thread(target=start_wmi_monitor, daemon=True).start()
     threading.Thread(target=start_network_monitor, daemon=True).start()
     threading.Thread(target=start_registry_monitor, daemon=True).start()
