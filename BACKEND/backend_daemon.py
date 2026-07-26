@@ -29,6 +29,9 @@ from backend_telemetry import (
     start_system_monitor,
 )
 
+# ---> ADD THIS LINE <---
+from threat_detection import start_threat_intel_updater
+
 # Define paths and logging
 BASE = os.path.join(os.getenv("PROGRAMDATA", r"C:\ProgramData"), "EdrAgent")
 ARCHIVE = os.path.join(BASE, "archive")
@@ -320,6 +323,8 @@ class EDRService(win32serviceutil.ServiceFramework):
         # 1. Start core utilities (IPC Named Pipe & Log Archiver)
         threading.Thread(target=start_ipc_server, daemon=True).start()
         threading.Thread(target=archive_worker, daemon=True).start()
+        # ---> ADD THIS LINE <---
+        start_threat_intel_updater()
 
         # 2. Start Data Engines (Dev's Monitors & Raj's File Monitor)
         threading.Thread(target=start_wmi_monitor, daemon=True).start()
@@ -339,6 +344,8 @@ def run_standalone():
     
     threading.Thread(target=start_ipc_server, daemon=True).start()
     threading.Thread(target=archive_worker, daemon=True).start()
+    # ---> ADD THIS LINE <---
+    start_threat_intel_updater()
     threading.Thread(target=start_wmi_monitor, daemon=True).start()
     threading.Thread(target=start_network_monitor, daemon=True).start()
     threading.Thread(target=start_registry_monitor, daemon=True).start()
