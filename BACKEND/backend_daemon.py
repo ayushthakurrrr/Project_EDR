@@ -134,7 +134,52 @@ def restart_process(pid):
             "error": str(e)
         }
 
+def _async_command_executor(action, command_dict, event_queue):
+    """
+    Executes commands in a background thread so the main Command Pipe is never blocked.
+    """
+    response = None
     
+    if action == "REFRESH_SOFTWARE":
+        print("[Command Thread] Executing REFRESH_SOFTWARE in background...")
+        start_software_monitor(event_queue)
+        return  # No direct incident response needed, it drops SOFTWARE_LIST into the queue.
+
+    elif action == "KILL_PROCESS":
+        pid = command_dict.get("pid")
+        print(f"[Command Thread] Executing Kill PID {pid} in background...")
+        response = kill_process(pid)
+
+    elif action == "STOP_PROCESS":
+        pid = command_dict.get("pid")
+        print(f"[Command Thread] Executing Stop PID {pid} in background...")
+        response = stop_process(pid)
+
+    elif action == "RESTART_PROCESS":
+        pid = command_dict.get("pid")
+        print(f"[Command Thread] Executing Restart PID {pid} in background...")
+        response = restart_process(pid)  
+
+    # If the command generated an incident response (like Kill/Stop/Restart), push it to the UI
+    if response:
+        incident_payload = {
+            "event_id": get_next_event_id(),
+            "type": "INCIDENT_RESPONSE",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "action": action,
+            "pid": str(command_dict.get("pid")),
+            "status": response.get("result") if response.get("success") else "FAILED",
+            "message": response.get("result", response.get("error", "UNKNOWN"))
+        }
+
+        print("[BACKEND] Sending incident response to GUI:")
+        print(json.dumps(incident_payload, indent=4))
+
+        # Send to GUI & Log
+        event_queue.put(incident_payload)
+        write_to_log_file(incident_payload)
+
+
 def listen_for_commands(event_queue):
     """
     Dedicated thread to listen for incoming commands from the PyQt GUI.
@@ -148,20 +193,14 @@ def listen_for_commands(event_queue):
             sa = win32security.SECURITY_ATTRIBUTES()
             sa.bInheritHandle = 1
             
-            # Create a blank security descriptor
             sd = win32security.SECURITY_DESCRIPTOR()
-            
-            # A NULL DACL grants full access to Everyone. 
-            # (1 = DACL is present, None = DACL is NULL, 0 = Not defaulted)
             sd.SetSecurityDescriptorDacl(1, None, 0)
-            
             sa.SECURITY_DESCRIPTOR = sd
             
-            # Create the Command Pipe (Server Side)
-            # PIPE_ACCESS_INBOUND ensures the backend can only READ from this pipe.
+            # 2. FIX: Upgrade to DUPLEX access
             pipe = win32pipe.CreateNamedPipe(
                 pipe_name,
-                win32pipe.PIPE_ACCESS_INBOUND, 
+                win32pipe.PIPE_ACCESS_DUPLEX, 
                 win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                 1, 65536, 65536,
                 0,
@@ -172,95 +211,43 @@ def listen_for_commands(event_queue):
             win32pipe.ConnectNamedPipe(pipe, None)
             print("[Command Thread] GUI connected. Listening...")
 
-            write_to_log_file(event_queue)
             while True:
                 try:
-                    # This is a synchronous, blocking read. 
-                    # It will sit here safely until the GUI writes to the pipe.
                     result, data = win32file.ReadFile(pipe, 64000)
                     
                     if data:
                         command_str = data.decode('utf-8')
                         command_dict = json.loads(command_str)
-                        
                         action = command_dict.get("action")
-                        response = None
                         
-                        # Route the incoming commands
-                        # if action == "REFRESH_SOFTWARE":
-                        #     print("[Command Thread] Received REFRESH_SOFTWARE command from GUI.")
-                            
-                        #     # Trigger your software scanner!
-                        #     # It will scan the registry and drop the payload directly into event_queue
-                        #     start_software_monitor(event_queue)
-                        if action == "REFRESH_SOFTWARE":
-                           print(  "[Command Thread] REFRESH_SOFTWARE")
-                           start_software_monitor(event_queue)
-
-                        elif action == "KILL_PROCESS":
-                           pid = command_dict.get("pid")
-                           print(f"[Command Thread] Kill PID {pid}")
-                           response = kill_process(pid)
-
-
-                        elif action == "STOP_PROCESS":
-                           pid = command_dict.get("pid")
-                           print(f"[Command Thread] Stop PID {pid}")
-                           response = stop_process(pid)
-
-
-                        elif action == "RESTART_PROCESS":
-                           pid = command_dict.get("pid")
-                           print(f"[Command Thread] Restart PID {pid}")
-                           response = restart_process(pid)  
-
-
-                        if response:
-
-                            incident_payload = {
-                           "event_id": get_next_event_id(),
-                           "type": "INCIDENT_RESPONSE",
-                           "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                           "action": action,
-                            "pid": str(command_dict.get("pid")),
-                            # "status": "SUCCESS" if response.get("success") else "FAILED",
-                                "status": response.get("result") if response.get("success") else "FAILED",
-                            "message": response.get(
-                            "result",
-                             response.get("error", "UNKNOWN")
-                            )}
-
-                            print("[BACKEND] Sending incident response:")
-                            print(json.dumps(incident_payload, indent=4))
-
-                            # Send to GUI
-                            event_queue.put(incident_payload)
-                            # Write into log
-                            write_to_log_file(incident_payload)
-
-                            
+                        # 3. FIX: Spawn a thread to handle the action immediately!
+                        # This frees up the pipe to receive the next command instantly.
+                        threading.Thread(
+                            target=_async_command_executor, 
+                            args=(action, command_dict, event_queue), 
+                            daemon=True
+                        ).start()
                           
                 except pywintypes.error as e:
-                    # Error 109 means the GUI disconnected (e.g., app was closed)
-                    if e.args[0] == 109: 
+                    if e.args[0] == 109: # 109 = ERROR_BROKEN_PIPE (GUI closed)
                         print("[Command Thread] GUI disconnected. Restarting pipe...")
                         break 
                     else:
                         print(f"[Command Thread] Read error: {e}")
                         break
-
                         
         except Exception as e:
             print(f"[Command Thread] Pipe creation error: {e}")
-            time.sleep(2) # Brief pause before retrying to prevent CPU spinning
+            time.sleep(2) 
             
         finally:
-            # Always clean up the handle before looping back to create a new one
             try:
                 win32pipe.DisconnectNamedPipe(pipe)
                 win32file.CloseHandle(pipe)
             except:
                 pass
+
+
 
 def archive_logs():
     """Archives old logs into a zip file, merging same-day logs into a single file."""
