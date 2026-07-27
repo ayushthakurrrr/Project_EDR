@@ -67,19 +67,23 @@ class SoftwareTab(QWidget):
             for software in software_list:
                 row = self.softwares_table.rowCount()
                 self.softwares_table.insertRow(row)
-                
-                display_name_item = QTableWidgetItem(software.get("display_name", "N/A"))
-                # Dump the specific software dictionary back to a JSON string and save it to the row
+
+                display_name_item = QTableWidgetItem(software.get("display_name") or "N/A")
                 display_name_item.setData(Qt.ItemDataRole.UserRole, json.dumps(software))
                 
                 self.softwares_table.setItem(row, 0, display_name_item)
                 
-                self.softwares_table.setItem(row, 1, QTableWidgetItem(software.get("version", "N/A")))
-                self.softwares_table.setItem(row, 2, QTableWidgetItem(software.get("publisher", "N/A")))
-                self.softwares_table.setItem(row, 3, QTableWidgetItem(software.get("install_location", "N/A")))
+                # Use 'or' to catch empty strings ("") or None values
+                version = software.get("version") or "N/A"
+                publisher = software.get("publisher") or "N/A"
+                install_location = software.get("install_location") or "N/A"
+
+                self.softwares_table.setItem(row, 1, QTableWidgetItem(version))
+                self.softwares_table.setItem(row, 2, QTableWidgetItem(publisher))
+                self.softwares_table.setItem(row, 3, QTableWidgetItem(install_location))
                 
                 # --- INSTALL DATE FORMATTING LOGIC ---
-                raw_date = software.get("install_date", "")
+                raw_date = software.get("install_date") or ""
                 display_date = "N/A"
                 
                 if raw_date:
@@ -92,5 +96,3 @@ class SoftwareTab(QWidget):
                 
         except Exception as e:
             print(f"Failed to populate software table: {e}")
-      
-    
