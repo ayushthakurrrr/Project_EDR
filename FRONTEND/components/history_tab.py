@@ -22,12 +22,22 @@ class HistoryTab(QWidget):
         
         # --- 1. Top Controls (Refresh & Filters) ---
         btn_layout = QHBoxLayout()
+
+        
         
         # Refresh Button
         self.refresh_btn = QPushButton("🔄 Refresh Log History")
+        self.refresh_btn.clicked.connect(self.populate_file_dropdown) # Now updates the file list
         self.refresh_btn.clicked.connect(self.load_history)
         btn_layout.addWidget(self.refresh_btn)
         btn_layout.addStretch()
+        # NEW: Log File Selector Dropdown
+        self.file_selector = QComboBox()
+        self.file_selector.setMinimumWidth(200)
+        self.file_selector.currentTextChanged.connect(self.load_history) # Auto-load on change
+        
+        btn_layout.addWidget(QLabel("Log File:"))
+        btn_layout.addWidget(self.file_selector)
 
         # Type Filter
         self.type_filter = QComboBox()
@@ -75,30 +85,96 @@ class HistoryTab(QWidget):
         
         self.terminal_pane.hide()
 
+        # Initial population of the dropdown when tab is created
+        self.populate_file_dropdown()
+
+    def populate_file_dropdown(self):
+        """Scans the LOG_DIR and populates the dropdown with available log files."""
+        # Temporarily disconnect the signal so clearing/adding doesn't trigger load_history
+        self.file_selector.blockSignals(True)
+        self.file_selector.clear()
+
+        if os.path.exists(LOG_DIR):
+            try:
+                # Find all log files
+                valid_logs = [f for f in os.listdir(LOG_DIR) if "agent" in f and "log" in f]
+                
+                if valid_logs:
+                    # Sort them descending (newest file at the top of the list)
+                    valid_logs.sort(reverse=True)
+                    self.file_selector.addItems(valid_logs)
+            except Exception as e:
+                print(f"Error finding log files: {e}")
+                
+        if self.file_selector.count() == 0:
+            self.file_selector.addItem("No log files found")
+            
+        # Reconnect the signal and load whatever is selected
+        self.file_selector.blockSignals(False)
+        self.load_history()
+
+    # def load_history(self):
+    #     """Dynamically finds and loads the most recent log file."""
+    #     self.history_events.clear()
+    #     self.history_table.setRowCount(0)
+        
+    #     # 1. Dynamically scan the directory for the newest log file
+    #     current_log_file = None
+        
+    #     if os.path.exists(LOG_DIR):
+    #         try:
+    #             # Find all files that look like agent logs
+    #             valid_logs = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR) if "agent" in f and "log" in f]
+                
+    #             if valid_logs:
+    #                 # Smart fetch: Grab the file with the most recent modification timestamp!
+    #                 current_log_file = max(valid_logs, key=os.path.getmtime)
+    #         except Exception as e:
+    #             print(f"Error finding dynamic log file: {e}")
+
+    #     # If no files exist yet, just exit cleanly
+    #     if not current_log_file or not os.path.exists(current_log_file):
+    #         return
+            
+    #     # 2. Read the dynamically found file
+    #     try:
+    #         with open(current_log_file, 'r') as f:
+    #             for line in f:
+    #                 if " | " in line:
+    #                     json_str = line.split(" | ", 1)[1]
+    #                     try:
+    #                         event = json.loads(json_str)
+    #                         if isinstance(event, dict):
+    #                            self.history_events.append(event)
+    #                     except json.JSONDecodeError:
+    #                         pass
+    #                 elif line.startswith("{"):
+    #                     try:
+    #                         event = json.loads(line)
+    #                         if isinstance(event, dict):
+    #                            self.history_events.append(event)
+    #                     except json.JSONDecodeError:
+    #                         pass
+    #     except Exception as e:
+    #         print(f"Error loading history: {e}")
+
+    #     self.populate_history_filters()
+    #     self.apply_history_filter() 
     def load_history(self):
-        """Dynamically finds and loads the most recent log file."""
+        """Loads events from the specific log file chosen in the dropdown."""
         self.history_events.clear()
         self.history_table.setRowCount(0)
         
-        # 1. Dynamically scan the directory for the newest log file
-        current_log_file = None
-        
-        if os.path.exists(LOG_DIR):
-            try:
-                # Find all files that look like agent logs
-                valid_logs = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR) if "agent" in f and "log" in f]
-                
-                if valid_logs:
-                    # Smart fetch: Grab the file with the most recent modification timestamp!
-                    current_log_file = max(valid_logs, key=os.path.getmtime)
-            except Exception as e:
-                print(f"Error finding dynamic log file: {e}")
-
-        # If no files exist yet, just exit cleanly
-        if not current_log_file or not os.path.exists(current_log_file):
+        selected_file = self.file_selector.currentText()
+        if not selected_file or selected_file == "No log files found":
             return
             
-        # 2. Read the dynamically found file
+        current_log_file = os.path.join(LOG_DIR, selected_file)
+        
+        if not os.path.exists(current_log_file):
+            return
+            
+        # Read the explicitly selected file
         try:
             with open(current_log_file, 'r') as f:
                 for line in f:
@@ -118,10 +194,11 @@ class HistoryTab(QWidget):
                         except json.JSONDecodeError:
                             pass
         except Exception as e:
-            print(f"Error loading history: {e}")
+            print(f"Error loading history file {current_log_file}: {e}")
 
+        # Populate internal filters (Type/Severity/Date based on the newly loaded file)
         self.populate_history_filters()
-        self.apply_history_filter()    
+        self.apply_history_filter()  
 
     def populate_history_filters(self):
         current_type = self.type_filter.currentText()

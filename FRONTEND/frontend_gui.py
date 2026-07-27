@@ -90,6 +90,8 @@ class SystemTrayApp(QObject):
             event = json.loads(text)
             event_type = event.get("type", "")
 
+            # print(f"[DEBUG PIPE] Received Event Type: '{event_type}' | Raw Payload: {text}")
+
             # Check the type and route directly to the specific TAB via main_window
             if event_type == "SOFTWARE_LIST":
                 # Route to the tab that handles installed software

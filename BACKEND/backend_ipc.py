@@ -8,6 +8,8 @@ import logging
 import winerror
 import win32api
 from logging.handlers import RotatingFileHandler
+import psutil       # <-- NEW
+import datetime     # <-- NEW
 
 PIPE_NAME = r'\\.\pipe\SimpleEDRPipe1'
 
@@ -60,6 +62,38 @@ def create_named_pipe():
 clients = []
 clients_lock = threading.Lock()
 
+def send_initial_state(pipe_handle):
+    """Sends current Boot Time and Active Users down the pipe as soon as GUI connects."""
+    try:
+        # --- NEW: Get the current time for the table's timestamp column ---
+        current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 1. Fetch & Send Boot Time
+        boot_ts = psutil.boot_time()
+        boot_time_str = datetime.datetime.fromtimestamp(boot_ts).strftime("%Y-%m-%d %H:%M:%S")
+        
+        boot_payload = json.dumps({
+            "timestamp": current_time_str,
+            "type": "SYSTEM_BOOT_INFO",
+            "boot_time": boot_time_str,
+            "message": f"System booted at {boot_time_str}"
+        }) + "\n"
+        
+        win32file.WriteFile(pipe_handle, boot_payload.encode('utf-8'))
+
+        # 2. Fetch & Send Current Active Users
+        users = list(set([u.name for u in psutil.users()]))
+        
+        user_payload = json.dumps({
+            "timestamp": current_time_str,
+            "type": "USER_SESSION_STARTED",
+            "active_users": users,
+            "message": f"Active user sessions: {', '.join(users)}"
+        }) + "\n"
+        
+        win32file.WriteFile(pipe_handle, user_payload.encode('utf-8'))
+    except Exception as e:
+        debug_log(f"Error sending initial state over pipe: {e}")
+
 def accept_clients():
 
     while True:
@@ -79,6 +113,8 @@ def accept_clients():
         
             with clients_lock:
                 clients.append(pipe)
+            # --- NEW: Send the boot/user data immediately to the new client ---
+            send_initial_state(pipe)
     
         except Exception as e:
 
