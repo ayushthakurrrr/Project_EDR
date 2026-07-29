@@ -18,6 +18,8 @@ import json
 import psutil
 import win32security
 
+from datetime import datetime, timedelta
+
 
 # Import your newly separated modules
 from backend_ipc import start_ipc_server, get_next_event_id, event_queue, write_to_log_file
@@ -249,8 +251,83 @@ def listen_for_commands(event_queue):
 
 
 
+# def archive_logs():
+#     """Archives old logs into a zip file, merging same-day logs into a single file."""
+#     logs = sorted(
+#         [
+#             f for f in os.listdir(BASE) 
+#              if f.startswith("agent_") and f.endswith(".log")
+#         ],
+#         key=lambda f: os.path.getmtime(os.path.join(BASE, f))
+#     )
+    
+#     if len(logs) > 7:
+#         # Group candidate archive logs by their date prefix (YYYY-MM-DD)
+#         logs_by_date = defaultdict(list)
+#         for f in logs[:-7]:
+#             # Extracts 'YYYY-MM-DD' from 'agent_YYYY-MM-DD.log' or 'agent_YYYY-MM-DD_HH-MM-SS.log'
+#             log_date = f.replace("agent_", "").split("_")[0].replace(".log", "")
+#             logs_by_date[log_date].append(f)
+
+#         # Generate the timestamp dynamically when the zip is created
+#         zip_name = os.path.join(ARCHIVE, f"old_logs_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.zip")
+#         with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as z:
+#             for log_date, file_list in logs_by_date.items():
+#                 # Sort the day's files chronologically so log events stay in order
+#                 file_list.sort(key=lambda f: os.path.getmtime(os.path.join(BASE, f)))
+                
+#                 merged_content = ""
+#                 for f in file_list:
+#                     p = os.path.join(BASE, f)
+#                     try:
+#                         with open(p, "r", encoding="utf-8", errors="ignore") as infile:
+#                             merged_content += infile.read() + "\n"
+#                         # Remove the rotated file from disk once read
+#                         os.remove(p)
+#                     except Exception as e:
+#                         logger.error(f"Error reading/removing {f} during archiving: {e}")
+                
+#                 # Write the merged text directly into the archive as 'YYYY-MM-DD_edr_log.log'
+#                 if merged_content.strip():
+#                     merged_filename = f"{log_date}_edr_log.log"
+#                     z.writestr(merged_filename, merged_content)
+
+import time
+
+def enforce_retention_policy(archive_dir, days_to_keep=30):
+    """
+    Deletes archive zip files older than the specified number of days 
+    to prevent disk exhaustion.
+    """
+    if not os.path.exists(archive_dir):
+        return
+
+    # Calculate the cutoff time in seconds since the epoch
+    current_time = time.time()
+    cutoff_time = current_time - (days_to_keep * 86400)  # 86400 seconds in a day
+
+    for filename in os.listdir(archive_dir):
+        if filename.endswith(".zip"):
+            file_path = os.path.join(archive_dir, filename)
+            if os.path.isfile(file_path):
+                file_mtime = os.path.getmtime(file_path)
+                
+                # If the file's modified time is older than the cutoff, delete it
+                if file_mtime < cutoff_time:
+                    try:
+                        os.remove(file_path)
+                        logger.info(f"Retention Policy: Deleted old archive {filename}")
+                    except Exception as e:
+                        logger.error(f"Retention Policy: Failed to delete {filename} - {e}")
 def archive_logs():
-    """Archives old logs into a zip file, merging same-day logs into a single file."""
+    """
+    Archives old logs into a zip file chronologically.
+    Keeps logs from the last 7 days unarchived.
+    Uses chunk-based streaming to prevent memory spikes.
+    """
+    # Calculate the cutoff date (7 days ago)
+    cutoff_date_str = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    
     logs = sorted(
         [
             f for f in os.listdir(BASE) 
@@ -259,45 +336,58 @@ def archive_logs():
         key=lambda f: os.path.getmtime(os.path.join(BASE, f))
     )
     
-    if len(logs) > 7:
-        # Group candidate archive logs by their date prefix (YYYY-MM-DD)
-        logs_by_date = defaultdict(list)
-        for f in logs[:-7]:
-            # Extracts 'YYYY-MM-DD' from 'agent_YYYY-MM-DD.log' or 'agent_YYYY-MM-DD_HH-MM-SS.log'
-            log_date = f.replace("agent_", "").split("_")[0].replace(".log", "")
+    logs_by_date = defaultdict(list)
+    
+    for f in logs:
+        # Extracts 'YYYY-MM-DD'
+        log_date = f.replace("agent_", "").split("_")[0].replace(".log", "")
+        
+        # Only add to archive list if the log date is older than the 7-day cutoff
+        if log_date < cutoff_date_str:
             logs_by_date[log_date].append(f)
 
-        # Generate the timestamp dynamically when the zip is created
-        zip_name = os.path.join(ARCHIVE, f"old_logs_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.zip")
-        with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as z:
-            for log_date, file_list in logs_by_date.items():
-                # Sort the day's files chronologically so log events stay in order
-                file_list.sort(key=lambda f: os.path.getmtime(os.path.join(BASE, f)))
-                
-                merged_content = ""
+    # Iterate through each unique past date that met the cutoff criteria
+    for log_date, file_list in logs_by_date.items():
+        zip_name = os.path.join(ARCHIVE, f"agent_logs_{log_date}.zip")
+        mode = "a" if os.path.exists(zip_name) else "w"
+        
+        with zipfile.ZipFile(zip_name, mode, zipfile.ZIP_DEFLATED) as z:
+            file_list.sort(key=lambda f: os.path.getmtime(os.path.join(BASE, f)))
+            
+            timestamp = datetime.now().strftime("%H-%M-%S")
+            merged_filename = f"{log_date}_merged_{timestamp}.log"
+            
+            with z.open(merged_filename, "w") as dest_stream:
                 for f in file_list:
                     p = os.path.join(BASE, f)
                     try:
-                        with open(p, "r", encoding="utf-8", errors="ignore") as infile:
-                            merged_content += infile.read() + "\n"
-                        # Remove the rotated file from disk once read
+                        with open(p, "rb") as infile:
+                            while chunk := infile.read(65536):
+                                dest_stream.write(chunk)
+                            dest_stream.write(b"\n")
                         os.remove(p)
                     except Exception as e:
-                        logger.error(f"Error reading/removing {f} during archiving: {e}")
-                
-                # Write the merged text directly into the archive as 'YYYY-MM-DD_edr_log.log'
-                if merged_content.strip():
-                    merged_filename = f"{log_date}_edr_log.log"
-                    z.writestr(merged_filename, merged_content)
+                        logger.error(f"Error streaming/removing {f} during archiving: {e}")
 
 def archive_worker():
-    """Background thread to periodically check and archive old logs."""
+    """
+    Background thread to periodically check and archive old logs,
+    and enforce disk retention policies.
+    """
     while True:
         try:
+            # 1. Zip yesterday's logs
             archive_logs()
+            
+            # 2. Delete zip files older than 30 days
+            enforce_retention_policy(ARCHIVE, days_to_keep=30)
+            
         except Exception as e:
-            logger.error(f"Archiving error: {e}")
-        time.sleep(60)  # Check every 60 seconds
+            logger.error(f"Archiving worker error: {e}")
+            
+        # Check once an hour (3600 seconds)
+        # time.sleep(3600)
+        time.sleep(60)
 
 # Service_wrapper_class
 class EDRService(win32serviceutil.ServiceFramework):
