@@ -28,8 +28,9 @@ class LiveStreamTab(QWidget):
         
         control_layout.addWidget(QLabel("FILTER EVENTS:"))
         control_layout.addWidget(self.filter_dropdown)
+
+
         control_layout.addStretch()
-        
         layout.addLayout(control_layout)
 
         # --- 2. Table ---
@@ -177,9 +178,10 @@ class LiveStreamTab(QWidget):
             # Broadcast the new count to the MainWindow (which updates the label)
             self.alert_received.emit(self.total_alerts)
 
-            # Insert new row
-            row = self.live_table.rowCount()
+            # # Insert new row(newest first) at the top of the table
+            row = 0
             self.live_table.insertRow(row)
+            
 
             # Extract type with fallback
             e_type = event.get("type") or "N/A"

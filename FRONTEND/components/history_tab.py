@@ -20,18 +20,23 @@ class HistoryTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         
+        # --- NEW: State Variables for Pagination & Filtering ---
+        self.history_events = []
+        self.filtered_events = []
+        self.current_page = 1
+        self.rows_per_page = 50
+
         # --- 1. Top Controls (Refresh & Filters) ---
         btn_layout = QHBoxLayout()
-
-        
         
         # Refresh Button
         self.refresh_btn = QPushButton("🔄 Refresh Log History")
-        self.refresh_btn.clicked.connect(self.populate_file_dropdown) # Now updates the file list
+        self.refresh_btn.clicked.connect(self.populate_file_dropdown) 
         self.refresh_btn.clicked.connect(self.load_history)
         btn_layout.addWidget(self.refresh_btn)
         btn_layout.addStretch()
-        # NEW: Log File Selector Dropdown
+
+        # Log File Selector Dropdown
         self.file_selector = QComboBox()
         self.file_selector.setMinimumWidth(200)
         self.file_selector.currentTextChanged.connect(self.load_history) # Auto-load on change
@@ -51,20 +56,23 @@ class HistoryTab(QWidget):
         btn_layout.addWidget(QLabel("Severity:"))
         btn_layout.addWidget(self.severity_filter)
 
-        # Date Filter
-        self.date_filter = QComboBox()
-        self.date_filter.addItem("All Dates")
-        btn_layout.addWidget(QLabel("Date:"))
-        btn_layout.addWidget(self.date_filter)
+        # NEW: Sort Filter (Replaces Date Filter)
+        self.sort_filter = QComboBox()
+        self.sort_filter.addItems(["Newest First", "Oldest First"])
+        btn_layout.addWidget(QLabel("Sort:"))
+        btn_layout.addWidget(self.sort_filter)
 
         # Apply Filter Button
         self.filter_btn = QPushButton("Apply Filter")
         self.filter_btn.clicked.connect(self.apply_history_filter)
         btn_layout.addWidget(self.filter_btn)
 
-        layout.addLayout(btn_layout)
+        # NEW: Reset Filters Button
+        self.reset_btn = QPushButton("Reset")
+        self.reset_btn.clicked.connect(self.reset_filters)
+        btn_layout.addWidget(self.reset_btn)
 
-        self.history_events = []
+        layout.addLayout(btn_layout)
         
         # --- 2. History Table ---
         self.history_table = self.create_event_table()
@@ -84,6 +92,30 @@ class HistoryTab(QWidget):
         layout.addWidget(self.history_splitter)
         
         self.terminal_pane.hide()
+
+        # --- 5. NEW: Pagination Controls (Bottom Section) ---
+        page_layout = QHBoxLayout()
+        
+        self.limit_dropdown = QComboBox()
+        self.limit_dropdown.addItems(["10", "50", "100", "500"])
+        self.limit_dropdown.setCurrentText("50")
+        self.limit_dropdown.currentTextChanged.connect(self.change_page_limit)
+        
+        page_layout.addWidget(QLabel("Rows per page:"))
+        page_layout.addWidget(self.limit_dropdown)
+        page_layout.addStretch()
+        
+        self.prev_btn = QPushButton("◀ Previous")
+        self.prev_btn.clicked.connect(self.prev_page)
+        self.page_label = QLabel("Page 1 of 1")
+        self.next_btn = QPushButton("Next ▶")
+        self.next_btn.clicked.connect(self.next_page)
+        
+        page_layout.addWidget(self.prev_btn)
+        page_layout.addWidget(self.page_label)
+        page_layout.addWidget(self.next_btn)
+        
+        layout.addLayout(page_layout)
 
         # Initial population of the dropdown when tab is created
         self.populate_file_dropdown()
@@ -109,8 +141,14 @@ class HistoryTab(QWidget):
         if self.file_selector.count() == 0:
             self.file_selector.addItem("No log files found")
             
-        # Reconnect the signal and load whatever is selected
+        # Reconnect the signal
         self.file_selector.blockSignals(False)
+        
+        # --- NEW: Reset UI state before loading the new file ---
+        # This ensures we start on Page 1 with default filters for the new file
+        self.reset_filters() 
+        # (Note: reset_filters() automatically calls apply_history_filter(), 
+        # but load_history() needs to run first to grab the actual data)
         self.load_history()
 
     # def load_history(self):
@@ -201,16 +239,13 @@ class HistoryTab(QWidget):
         self.apply_history_filter()  
 
     def populate_history_filters(self):
-        current_type = self.type_filter.currentText()
-        current_date = self.date_filter.currentText()
+        """Populates dynamic dropdowns based on the loaded file (Date removed)."""
+        # Block signals so clearing them doesn't accidentally trigger a refresh
+        self.type_filter.blockSignals(True)
+        self.severity_filter.blockSignals(True)
 
         types = sorted({
             e.get("type", "Unknown")
-            for e in self.history_events
-        })
-
-        dates = sorted({
-            e.get("timestamp", "")[:10]
             for e in self.history_events
         })
 
@@ -223,13 +258,12 @@ class HistoryTab(QWidget):
         self.type_filter.addItem("All Event Types")
         self.type_filter.addItems(types)
 
-        self.date_filter.clear()
-        self.date_filter.addItem("All Dates")
-        self.date_filter.addItems(dates)
-
         self.severity_filter.clear()
         self.severity_filter.addItem("All Severities")
         self.severity_filter.addItems(severities)
+
+        self.type_filter.blockSignals(False)
+        self.severity_filter.blockSignals(False)
 
     def get_event_severity(self, event):
         """Determines severity based on event type."""
@@ -247,28 +281,106 @@ class HistoryTab(QWidget):
             return "Low"
         
     def apply_history_filter(self):
-        """Applies dropdown filters to the history table."""
-        self.history_table.setRowCount(0)
-
-        # Using the simplified combo box names from setup_ui
+        """Filters, Sorts, and prepares the events for Pagination."""
         selected_type = self.type_filter.currentText()
-        selected_date = self.date_filter.currentText()
         selected_severity = self.severity_filter.currentText()
+        sort_order = self.sort_filter.currentText()
 
+        # 1. Filter the Master List into self.filtered_events
+        self.filtered_events = []
         for event in self.history_events:
             event_type = event.get("type", "")
-            event_date = event.get("timestamp", "")[:10]
             event_severity = self.get_event_severity(event)
 
             if selected_type != "All Event Types" and event_type != selected_type:
                 continue
-            if selected_date != "All Dates" and event_date != selected_date:
-                continue
             if selected_severity != "All Severities" and event_severity != selected_severity:
                 continue    
+            
+            self.filtered_events.append(event)
 
-            # No need to pass the table argument anymore, we know it's self.history_table
-            self.add_row_to_table(json.dumps(event)) 
+        # 2. Sort Chronologically (File reads oldest first by default)
+        if sort_order == "Newest First":
+            self.filtered_events.reverse() 
+
+        # 3. Reset to Page 1 and Draw the page
+        self.current_page = 1
+        self.render_current_page()
+
+    # =========================================================================
+    # NEW PAGINATION & RENDERING FUNCTIONS (Paste these right below apply_history_filter)
+    # =========================================================================
+
+    def render_current_page(self):
+        """Draws only the rows for the current page."""
+        self.history_table.setRowCount(0)
+
+        total_items = len(self.filtered_events)
+        if total_items == 0:
+            self.page_label.setText("No events found")
+            self.prev_btn.setEnabled(False)
+            self.next_btn.setEnabled(False)
+            return
+
+        total_pages = (total_items // self.rows_per_page) + (1 if total_items % self.rows_per_page > 0 else 0)
+        total_pages = max(1, total_pages)
+
+        start_index = (self.current_page - 1) * self.rows_per_page
+        end_index = start_index + self.rows_per_page
+        
+        # # Slice the list and draw only the events for this page
+        page_events = self.filtered_events[start_index:end_index]
+        # for event in page_events:
+        #     self.add_row_to_table(json.dumps(event))
+        # --- NEW: Keep track of continuous Row Numbers ---
+        row_labels = [] 
+        
+        for i, event in enumerate(page_events):
+            self.add_row_to_table(json.dumps(event))
+            
+            # Calculate true row number (e.g., start_index of 50 + i of 0 + 1 = 51)
+            row_labels.append(str(start_index + i + 1)) 
+
+        # Apply the continuous numbers to the table's vertical header
+        self.history_table.setVerticalHeaderLabels(row_labels)
+
+        # Update UI text and button states
+        self.page_label.setText(f"Page {self.current_page} of {total_pages}  ({total_items} Total Events)")
+        self.prev_btn.setEnabled(self.current_page > 1)
+        self.next_btn.setEnabled(self.current_page < total_pages)
+
+    def next_page(self):
+        self.current_page += 1
+        self.render_current_page()
+
+    def prev_page(self):
+        self.current_page -= 1
+        self.render_current_page()
+
+    def change_page_limit(self, value):
+        self.rows_per_page = int(value)
+        self.current_page = 1
+        self.render_current_page()
+
+    def reset_filters(self):
+        """Resets all dropdowns to default and triggers a re-filter."""
+        self.type_filter.blockSignals(True)
+        self.severity_filter.blockSignals(True)
+        self.sort_filter.blockSignals(True)
+        self.limit_dropdown.blockSignals(True)
+
+        self.type_filter.setCurrentText("All Event Types")
+        self.severity_filter.setCurrentText("All Severities")
+        self.sort_filter.setCurrentText("Newest First")
+        self.limit_dropdown.setCurrentText("50")
+
+        self.type_filter.blockSignals(False)
+        self.severity_filter.blockSignals(False)
+        self.sort_filter.blockSignals(False)
+        self.limit_dropdown.blockSignals(False)
+        
+        # Manually apply the default filters
+        self.apply_history_filter() 
 
     def add_row_to_table(self, text):
         """Parses JSON text and adds a colored row to the History table."""
