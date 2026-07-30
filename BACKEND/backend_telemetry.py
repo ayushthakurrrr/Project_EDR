@@ -5,6 +5,8 @@ import win32api # registry sensor
 import queue
 import threading
 
+import backend_ipc  # <--- ADD THIS TO READ THE AUTOPILOT FLAG
+from active_response import execute_automated_response
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import glob
@@ -148,6 +150,8 @@ def start_wmi_monitor():
 
             # --- THREAT INTELLIGENCE CHECK ---
             payload = evaluate_threat_locally(payload)
+            # --- AUTO-PILOT RESPONSE CHECK ---
+            payload = execute_automated_response(payload, backend_ipc.AUTO_PILOT_MODE)
             
             event_queue.put(payload)
             write_to_log_file(payload)
@@ -203,7 +207,10 @@ def start_network_monitor():
                         }
 
                         payload = evaluate_threat_locally(payload)    #<------threat intelligence check
+
                         
+                        payload = execute_automated_response(payload, backend_ipc.AUTO_PILOT_MODE)  #<------auto-pilot response check
+
                         event_queue.put(payload)
                         write_to_log_file(payload)
             
@@ -276,7 +283,7 @@ def start_registry_monitor():
                     }
 
                      payload = evaluate_threat_locally(payload)  #<------threat intelligence check
-                
+                     payload = execute_automated_response(payload, backend_ipc.AUTO_PILOT_MODE)  #<------auto-pilot response check
                      event_queue.put(payload)
                      write_to_log_file(payload)
 
@@ -395,7 +402,8 @@ def process_download_worker():
             PROCESSED_DOWNLOADS[path] = time.time()
 
             payload = evaluate_threat_locally(payload) #<------threat intelligence check
-          
+
+            payload = execute_automated_response(payload, backend_ipc.AUTO_PILOT_MODE) #<------auto-pilot response check
             event_queue.put(payload)
             write_to_log_file(payload)
 

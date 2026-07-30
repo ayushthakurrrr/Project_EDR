@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 
 # Import your newly separated modules
 from backend_ipc import start_ipc_server, get_next_event_id, event_queue, write_to_log_file
+import backend_ipc  # <--- ADD THIS so we can edit the AUTO_PILOT_MODE flag
 from backend_telemetry import (
     start_wmi_monitor, 
     start_file_monitor, 
@@ -32,8 +33,12 @@ from backend_telemetry import (
     start_system_monitor,
 )
 
-# ---> ADD THIS LINE <---
+# ---> ADD THIS LINE (threat intelligence updater) <---
 from threat_detection import start_threat_intel_updater
+
+# ---> ADD THIS IMPORT HERE (active response functions) <---
+from active_response import kill_process, stop_process, restart_process
+
 
 # Define paths and logging
 BASE = os.path.join(os.getenv("PROGRAMDATA", r"C:\ProgramData"), "EdrAgent")
@@ -65,76 +70,6 @@ h = DailySizeHandler()
 h.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 logger.addHandler(h)
 
-def kill_process(pid):
-    try:
-        process = psutil.Process(int(pid))
-
-        process.kill()
-        process_name = process.name()
-
-        return {
-    "success": True,
-    "pid": pid,
-    "result": "KILLED",
-    "state": "KILLED"
-}
-
-    except Exception as e:
-        print("[KILL ERROR]", e)
-        return {
-            "success": False,
-            "pid": pid,
-            "error": str(e)
-        }
-def stop_process(pid):
-    try:
-        process = psutil.Process(int(pid))
-
-        process.terminate()
-        process_name = process.name()
-
-        return {
-            "success": True,
-            "pid": pid,
-            "result": "STOPPED",
-            "state": "STOPPED"
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "pid": pid,
-            "error": str(e)
-        }
-
-
-def restart_process(pid):
-    try:
-        process = psutil.Process(int(pid))
-
-        old_name = process.name()
-        exe = process.exe()
-
-        process.kill()
-
-        time.sleep(1)
-
-        new_process = psutil.Popen(exe)
-
-        return {
-            "success": True,
-            "old_pid": pid,
-            "new_pid": new_process.pid,
-            "result": "PROCESS_RESTARTED",
-            "state": "RUNNING"
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "pid": pid,
-            "error": str(e)
-        }
 
 def _async_command_executor(action, command_dict, event_queue):
     """
@@ -146,6 +81,14 @@ def _async_command_executor(action, command_dict, event_queue):
         print("[Command Thread] Executing REFRESH_SOFTWARE in background...")
         start_software_monitor(event_queue)
         return  # No direct incident response needed, it drops SOFTWARE_LIST into the queue.
+
+
+    # ---> ADD THIS NEW BLOCK HERE (auto-pilot toggle block) <---
+    elif action == "TOGGLE_AUTOPILOT":
+        status = command_dict.get("pid") == "ON"
+        backend_ipc.AUTO_PILOT_MODE = status
+        print(f"[Command Thread] Auto-Pilot Mode set to: {'ON' if status else 'OFF'}")
+        return  # Return instantly so we don't send an incident response payload
 
     elif action == "KILL_PROCESS":
         pid = command_dict.get("pid")
@@ -248,51 +191,6 @@ def listen_for_commands(event_queue):
                 win32file.CloseHandle(pipe)
             except:
                 pass
-
-
-
-# def archive_logs():
-#     """Archives old logs into a zip file, merging same-day logs into a single file."""
-#     logs = sorted(
-#         [
-#             f for f in os.listdir(BASE) 
-#              if f.startswith("agent_") and f.endswith(".log")
-#         ],
-#         key=lambda f: os.path.getmtime(os.path.join(BASE, f))
-#     )
-    
-#     if len(logs) > 7:
-#         # Group candidate archive logs by their date prefix (YYYY-MM-DD)
-#         logs_by_date = defaultdict(list)
-#         for f in logs[:-7]:
-#             # Extracts 'YYYY-MM-DD' from 'agent_YYYY-MM-DD.log' or 'agent_YYYY-MM-DD_HH-MM-SS.log'
-#             log_date = f.replace("agent_", "").split("_")[0].replace(".log", "")
-#             logs_by_date[log_date].append(f)
-
-#         # Generate the timestamp dynamically when the zip is created
-#         zip_name = os.path.join(ARCHIVE, f"old_logs_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.zip")
-#         with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as z:
-#             for log_date, file_list in logs_by_date.items():
-#                 # Sort the day's files chronologically so log events stay in order
-#                 file_list.sort(key=lambda f: os.path.getmtime(os.path.join(BASE, f)))
-                
-#                 merged_content = ""
-#                 for f in file_list:
-#                     p = os.path.join(BASE, f)
-#                     try:
-#                         with open(p, "r", encoding="utf-8", errors="ignore") as infile:
-#                             merged_content += infile.read() + "\n"
-#                         # Remove the rotated file from disk once read
-#                         os.remove(p)
-#                     except Exception as e:
-#                         logger.error(f"Error reading/removing {f} during archiving: {e}")
-                
-#                 # Write the merged text directly into the archive as 'YYYY-MM-DD_edr_log.log'
-#                 if merged_content.strip():
-#                     merged_filename = f"{log_date}_edr_log.log"
-#                     z.writestr(merged_filename, merged_content)
-
-import time
 
 def enforce_retention_policy(archive_dir, days_to_keep=30):
     """
@@ -418,7 +316,7 @@ class EDRService(win32serviceutil.ServiceFramework):
         # ---> ADD THIS LINE <---
         start_threat_intel_updater()
 
-        # 2. Start Data Engines (Dev's Monitors & Raj's File Monitor)
+        # 2. Start Data Engines (File Monitor)
         threading.Thread(target=start_wmi_monitor, daemon=True).start()
         threading.Thread(target=start_network_monitor, daemon=True).start()
         threading.Thread(target=start_registry_monitor, daemon=True).start()

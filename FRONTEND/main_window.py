@@ -4,9 +4,10 @@ import win32event
 import win32api
 import winerror
 
-from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QTabWidget, QLabel)
+from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QTabWidget, QLabel, QPushButton)
+from PyQt6.QtCore import Qt
 
-from workers.pipe_listener import PipeListener
+from workers.pipe_listener import PipeListener, send_backend_command
 from components.software_tab import SoftwareTab
 from components.live_stream_tab import LiveStreamTab
 from components.history_tab import HistoryTab
@@ -78,10 +79,19 @@ class MainWindow(QMainWindow):
         self.users_label = QLabel("Users: 0")
         self.users_label.setStyleSheet("color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
 
+        # Auto-Pilot Toggle Button
+        # ---> ADD THE AUTOPILOT BUTTON HERE <---
+        self.autopilot_btn = QPushButton("Auto-Pilot: OFF")
+        self.autopilot_btn.setCheckable(True)
+        self.autopilot_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.autopilot_btn.setStyleSheet("background-color: #30363d; color: #8b949e; padding: 8px; border-radius: 6px; font-weight: bold;")
+        self.autopilot_btn.clicked.connect(self.toggle_autopilot)
+
         self.footer_layout.addWidget(self.status_label)
         self.footer_layout.addStretch()
         self.footer_layout.addWidget(self.boot_time_label)  # <-- NEW_boot
         self.footer_layout.addWidget(self.users_label)      #<-- NEW_switch_user
+        self.footer_layout.addWidget(self.autopilot_btn)    # <-- NEW_auto-pilot button
         self.footer_layout.addWidget(self.alerts_label)
         self.footer_layout.addWidget(self.hostname_label)
         main_layout.addLayout(self.footer_layout)
@@ -129,3 +139,15 @@ class MainWindow(QMainWindow):
 
     def process_live_event(self, json_str):
         self.live_tab.add_row_to_table(json_str)
+
+
+    # --- NEW: Auto-Pilot Toggle Handler ---
+    def toggle_autopilot(self, checked):
+        if checked:
+            self.autopilot_btn.setText("Auto-Pilot: ON (ACTIVE)")
+            self.autopilot_btn.setStyleSheet("background-color: #da3633; color: #ffffff; padding: 8px; border-radius: 6px; font-weight: bold; border: 1px solid #ff7b72;")
+            send_backend_command("TOGGLE_AUTOPILOT", pid="ON")
+        else:
+            self.autopilot_btn.setText("Auto-Pilot: OFF")
+            self.autopilot_btn.setStyleSheet("background-color: #30363d; color: #8b949e; padding: 8px; border-radius: 6px; font-weight: bold;")
+            send_backend_command("TOGGLE_AUTOPILOT", pid="OFF")

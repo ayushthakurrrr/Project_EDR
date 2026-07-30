@@ -18,6 +18,7 @@ event_queue = queue.Queue()
 event_counter = 1
 counter_lock = threading.Lock()
 ALLOW_LIST = set()
+AUTO_PILOT_MODE = False   # -- NEW: Global flag to indicate if Auto-Pilot is enabled
 
 def write_to_log_file(payload):
     """Uses Raj's global logger to write telemetry to agent.log"""
