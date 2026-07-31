@@ -350,7 +350,7 @@ def process_download_worker():
 
             # If this file was already logged in the last 30 seconds, drop the duplicate!
             if path in PROCESSED_DOWNLOADS and (current_time - PROCESSED_DOWNLOADS[path]) < 30:
-                download_queue.task_done()
+                # download_queue.task_done()
                 continue
             # --- END DEDUPLICATION CHECK ---
 
@@ -358,16 +358,16 @@ def process_download_worker():
             time.sleep(5)
 
             if not os.path.exists(path):
-                download_queue.task_done()
+                # download_queue.task_done()
                 continue
 
             try:
                 size = os.path.getsize(path)
                 if size == 0:
-                    download_queue.task_done()
+                    # download_queue.task_done()
                     continue
             except:
-                download_queue.task_done()
+                # download_queue.task_done()
                 continue
 
             # Read Mark-of-the-Web (Zone.Identifier Alternate Data Stream) safely
@@ -378,8 +378,12 @@ def process_download_worker():
             except:
                 pass
 
+
+            #for testing purposes, you can uncomment the following line to simulate a zone identifier for files that don't have one
+            #zone = "ZoneId=3"  # Simulate a file downloaded from the internet (Zone 3) for testing purposes
+            
             if not zone:
-                download_queue.task_done()
+                # download_queue.task_done()
                 continue
 
             # Hash the completed download
@@ -412,6 +416,7 @@ def process_download_worker():
             
         finally:
             download_queue.task_done()
+            # pass
 
 def start_file_monitor():
     """Background worker that monitors all users' Downloads folders."""
