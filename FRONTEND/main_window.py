@@ -7,6 +7,7 @@ import qdarktheme
 
 from PyQt6.QtWidgets import (QApplication, QToolBar, QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QTabWidget, QLabel, QPushButton)
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPalette
 
 from workers.pipe_listener import PipeListener, send_backend_command
 from components.software_tab import SoftwareTab
@@ -30,7 +31,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("EDR Agent Dashboard")
         self.resize(1000, 650)
         self.total_alerts = 0
-        self.is_dark_mode = True
+
+        # 1. Check the background color's lightness to determine OS theme
+        # Lightness ranges from 0 (pitch black) to 255 (pure white)
+        bg_lightness = self.palette().color(QPalette.ColorRole.Window).lightness()
+        
+        # If the background is dark (lightness < 128), we are in dark mode
+        self.is_dark = bg_lightness < 128
         
         # 1. Create a Toolbar at the top
         toolbar = QToolBar("Main Toolbar")
@@ -44,7 +51,12 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.theme_toggle_btn)
 
         # Apply Modern Dark Theme
-        apply_modern_theme(self)
+        if(self.is_dark):
+            apply_modern_theme("dark")
+        else:
+            apply_modern_theme("light")
+
+        self.update_theme_toggle_button()
 
         # Main Layout
         central_widget = QWidget()
@@ -76,38 +88,47 @@ class MainWindow(QMainWindow):
 
         # Footer Status Bar
         self.footer_layout = QHBoxLayout()
-        # ... add your widgets to footer_layout ...
+
+        # STATUS LABEL
         self.status_label = QLabel("Daemon: Stopped  |  Pipe: Disconnected")
-        # self.status_label.setStyleSheet("font-weight: bold; font-size: 35px; color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
-        self.status_label.setStyleSheet("font-weight: bold; font-size: 35px; padding: 8px; border-radius: 6px;")
+        self.status_label.setObjectName("FooterBadge")
+        # Note: 35px is quite large for a footer, adjust if needed!
+        self.status_label.setStyleSheet("font-weight: bold; padding: 8px; border-radius: 6px;")        # ALERTS LABEL
         self.alerts_label = QLabel("Total Alerts: 0")
-        # self.alerts_label.setStyleSheet("font-weight: bold; color: #ff7b72; background: #161b22; padding: 8px; border-radius: 6px;")
-        self.alerts_label.setStyleSheet("font-weight: bold; padding: 8px; border-radius: 6px;")
         self.live_tab.alert_received.connect(self.update_alert_label)
+        self.alerts_label.setObjectName("AlertBadge")
+        self.alerts_label.setStyleSheet("font-weight: bold; padding: 8px; border-radius: 6px;")
+        
+        # HOSTNAME LABEL
         self.hostname_label = QLabel(f"Host: {socket.gethostname()}")
-        # self.hostname_label.setStyleSheet("color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
+        self.hostname_label.setObjectName("FooterBadge")
         self.hostname_label.setStyleSheet("padding: 8px; border-radius: 6px;")
 
-        # --- ADD THESE NEW LABELS ---
+        # BOOT TIME LABEL
         self.boot_time_label = QLabel("Boot: Unknown")
-        self.boot_time_label.setStyleSheet("color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
+        self.boot_time_label.setObjectName("FooterBadge")
+        self.boot_time_label.setStyleSheet("padding: 8px; border-radius: 6px;")
         
+        # USERS LABEL
         self.users_label = QLabel("Users: 0")
-        self.users_label.setStyleSheet("color: #8b949e; background: #161b22; padding: 8px; border-radius: 6px;")
+        self.users_label.setObjectName("FooterBadge")
+        self.users_label.setStyleSheet("padding: 8px; border-radius: 6px;")
 
-        # Auto-Pilot Toggle Button
-        # ---> ADD THE AUTOPILOT BUTTON HERE <---
+        # AUTO-PILOT BUTTON
         self.autopilot_btn = QPushButton("Auto-Pilot: OFF")
         self.autopilot_btn.setCheckable(True)
+        self.autopilot_btn.setFixedWidth(135)
         self.autopilot_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.autopilot_btn.setStyleSheet("background-color: #30363d; color: #8b949e; padding: 8px; border-radius: 6px; font-weight: bold;")
+        # Let pyqtdarktheme handle the button background and colors completely!
+        self.autopilot_btn.setStyleSheet("padding: 6px 12px; border-radius: 6px; font-weight: bold;")
         self.autopilot_btn.clicked.connect(self.toggle_autopilot)
 
+        # Add to layout...
         self.footer_layout.addWidget(self.status_label)
         self.footer_layout.addStretch()
-        self.footer_layout.addWidget(self.boot_time_label)  # <-- NEW_boot
-        self.footer_layout.addWidget(self.users_label)      #<-- NEW_switch_user
-        self.footer_layout.addWidget(self.autopilot_btn)    # <-- NEW_auto-pilot button
+        self.footer_layout.addWidget(self.boot_time_label)
+        self.footer_layout.addWidget(self.users_label)
+        self.footer_layout.addWidget(self.autopilot_btn)
         self.footer_layout.addWidget(self.alerts_label)
         self.footer_layout.addWidget(self.hostname_label)
         main_layout.addLayout(self.footer_layout)
@@ -120,20 +141,22 @@ class MainWindow(QMainWindow):
         """Updates the global UI when the LiveStreamTab receives a new alert."""
         self.alerts_label.setText(f"Total Alerts: {count}")
 
-    def toggle_theme(self):
-        # Get the global application instance again
-        app = QApplication.instance()
-        
-        if self.is_dark_mode:
-            # Switch to Light Theme
-            app.setStyleSheet(qdarktheme.load_stylesheet("light"))
-            self.theme_toggle_btn.setText("Switch to Dark Mode")
-            self.is_dark_mode = False
-        else:
-            # Switch to Dark Theme
-            app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
+    def update_theme_toggle_button(self):
+        """Updates the button text and icons to reflect the current state."""
+        if self.is_dark:
             self.theme_toggle_btn.setText("Switch to Light Mode")
-            self.is_dark_mode = True
+        else:
+            self.theme_toggle_btn.setText("Switch to Dark Mode")
+
+    def toggle_theme(self):
+        """Manually overrides the system default when the user clicks the toggle."""
+        self.is_dark = not self.is_dark
+        
+        # Explicitly set it to light or dark based on the manual toggle
+        theme = "dark" if self.is_dark else "light"
+        apply_modern_theme(theme)
+        
+        self.update_theme_toggle_button()
 
     def closeEvent(self, event):
         """
@@ -149,13 +172,17 @@ class MainWindow(QMainWindow):
     def update_connection_status(self, pipe_connected, daemon_running):
         if pipe_connected:
             self.status_label.setText("Daemon: Running  |  Pipe: Connected")
-            self.status_label.setStyleSheet("font-weight: bold; color: #3fb950; background: #161b22; padding: 8px; border-radius: 6px;")
+            self.status_label.setProperty("statusState", "connected")
         elif daemon_running:
             self.status_label.setText("Daemon: Running  |  Pipe: Disconnected")
-            self.status_label.setStyleSheet("font-weight: bold; color: #d29922; background: #161b22; padding: 8px; border-radius: 6px;")
+            self.status_label.setProperty("statusState", "partial")
         else:
             self.status_label.setText("Daemon: Stopped  |  Pipe: Disconnected")
-            self.status_label.setStyleSheet("font-weight: bold; color: #ff7b72; background: #161b22; padding: 8px; border-radius: 6px;")
+            self.status_label.setProperty("statusState", "disconnected")
+            
+        # Force PyQt to refresh the CSS based on the new property
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
 
     #switch _user and boot time update
     def update_boot_ui(self, boot_time_str):
@@ -169,16 +196,13 @@ class MainWindow(QMainWindow):
     #above in both switch and boot time update
 
     def process_live_event(self, json_str):
-        self.live_tab.add_row_to_table(json_str)
-
+        self.live_tab.add_row_to_table(json_str,self.is_dark)
 
     # --- NEW: Auto-Pilot Toggle Handler ---
     def toggle_autopilot(self, checked):
         if checked:
-            self.autopilot_btn.setText("Auto-Pilot: ON (ACTIVE)")
-            self.autopilot_btn.setStyleSheet("background-color: #da3633; color: #ffffff; padding: 8px; border-radius: 6px; font-weight: bold; border: 1px solid #ff7b72;")
+            self.autopilot_btn.setText("Auto-Pilot: ON")
             send_backend_command("TOGGLE_AUTOPILOT", pid="ON")
         else:
             self.autopilot_btn.setText("Auto-Pilot: OFF")
-            self.autopilot_btn.setStyleSheet("background-color: #30363d; color: #8b949e; padding: 8px; border-radius: 6px; font-weight: bold;")
             send_backend_command("TOGGLE_AUTOPILOT", pid="OFF")

@@ -1,89 +1,13 @@
-# def apply_modern_theme(self):
-#     """Applies a highly polished, VS Code / GitHub style dark mode."""
-#     self.setStyleSheet("""
-#         QMainWindow, QWidget {
-#             background-color: #0d1117;
-#             color: #c9d1d9;
-#             font-family: 'Segoe UI', system-ui, sans-serif;
-#             font-size: 13px;
-#         }
-#         QTabWidget::pane {
-#             border: 1px solid #30363d;
-#             border-radius: 8px;
-#             background-color: #161b22;
-#             margin-top: -1px;
-#         }
-#         QTabBar::tab {
-#             background: #0d1117;
-#             color: #8b949e;
-#             padding: 10px 24px;
-#             border: 1px solid transparent;
-#             border-top-left-radius: 8px;
-#             border-top-right-radius: 8px;
-#             font-weight: bold;
-#         }
-#         QTabBar::tab:selected {
-#             background: #161b22;
-#             color: #58a6ff;
-#             border: 1px solid #30363d;
-#             border-bottom-color: #161b22;
-#         }
-#         QTabBar::tab:hover:!selected {
-#             background: #21262d;
-#             color: #c9d1d9;
-#         }
-#         QTableWidget {
-#             background-color: #0d1117;
-#             color: #c9d1d9;
-#             border: none;
-#             gridline-color: #30363d;
-#             selection-background-color: #1f6feb;
-#             border-radius: 8px;
-#         }
-#         QHeaderView::section {
-#             background-color: #161b22;
-#             color: #8b949e;
-#             padding: 10px;
-#             border: none;
-#             border-right: 1px solid #30363d;
-#             border-bottom: 1px solid #30363d;
-#             font-weight: bold;
-#             text-transform: uppercase;
-#         }
-#         QPushButton {
-#             background-color: #238636;
-#             color: #ffffff;
-#             border: 1px solid rgba(240, 246, 252, 0.1);
-#             padding: 8px 20px;
-#             border-radius: 6px;
-#             font-weight: bold;
-#         }
-#         QPushButton:hover {
-#             background-color: #2ea043;
-#         }
-#         QPushButton:pressed {
-#             background-color: #1a6428;
-#         }
-#         QComboBox {
-#             background-color: #161b22;
-#             color: #c9d1d9;
-#             border: 1px solid #30363d;
-#             border-radius: 6px;
-#             padding: 6px 12px;
-#         }
-#         QComboBox::drop-down {
-#             border: none;
-#         }
-#         QComboBox QAbstractItemView {
-#             background-color: #161b22;
-#             border: 1px solid #30363d;
-#             selection-background-color: #1f6feb;
-#         }
-#     """)
-
-def apply_modern_theme(self):
-    """Returns only the structural/layout CSS to be combined with pyqtdarktheme."""
-    return """
+from PyQt6.QtWidgets import QApplication
+def apply_modern_theme(theme_mode="auto"):
+        import qdarktheme
+        app = QApplication.instance()
+        
+        # 1. Load the base theme from qdarktheme
+        base_theme_css = qdarktheme.load_stylesheet(theme_mode)
+        
+        # 2. Your custom structural CSS
+        custom_base_css = """
         QMainWindow, QWidget {
             font-family: 'Segoe UI', system-ui, sans-serif;
             font-size: 13px;
@@ -130,4 +54,66 @@ def apply_modern_theme(self):
         QComboBox QAbstractItemView {
             border-width: 1px;
         }
+        QFrame#TerminalFrame {
+                border-radius: 5px;
+                border: 1px solid;
+        }
+        QPushButton#TerminalCloseBtn {
+            border-radius: 12px;       
+            font-family: Arial, sans-serif;
+            font-size: 14px;           
+            font-weight: 900;          
+            padding: 0px;              
+            margin: 0px; 
+            border: 1px solid;
+        }
+        QTextEdit#TerminalText {
+            font-family: Consolas, monospace; 
+            font-size: 13px; 
+            border: none;
+            background-color: transparent;
+        }
     """
+
+    # 3. Your custom state-based colors
+        if theme_mode == "dark":
+            custom_color_css = """
+                QLabel#FooterBadge { background-color: #161b22; color: #8b949e; }
+                QLabel#AlertBadge { background-color: #161b22; color: #ff7b72; }
+                
+                QLabel#FooterBadge[statusState="connected"] { color: #3fb950; }
+                QLabel#FooterBadge[statusState="partial"] { color: #d29922; }
+                QLabel#FooterBadge[statusState="disconnected"] { color: #ff7b72; }
+                
+                QPushButton:checked { background-color: #da3633; color: #ffffff; border: 1px solid #ff7b72; }
+                QFrame#TerminalFrame { background-color: #0d1117; border-color: #30363d; }
+                
+                QPushButton#TerminalCloseBtn { background-color: #21262d; color: #c9d1d9; border-color: #30363d; }
+                QPushButton#TerminalCloseBtn:hover { background-color: #da3633; color: #ffffff; border-color: #da3633; }
+                QPushButton#TerminalCloseBtn:pressed { background-color: #b32d2a; }
+                
+                QTextEdit#TerminalText { color: #79c0ff; }
+            """
+        else:
+            custom_color_css = """
+                QLabel#FooterBadge { background-color: #f6f8fa; color: #57606a; }
+                QLabel#AlertBadge { background-color: #ffebe9; color: #cf222e; }
+                
+                QLabel#FooterBadge[statusState="connected"] { color: #1a7f37; }
+                QLabel#FooterBadge[statusState="partial"] { color: #9a6700; }
+                QLabel#FooterBadge[statusState="disconnected"] { color: #cf222e; }
+                
+                QPushButton:checked { background-color: #cf222e; color: #ffffff; border: 1px solid #a40e26; }
+                QFrame#TerminalFrame { background-color: #f6f8fa; border-color: #d0d7de; }
+                
+                QPushButton#TerminalCloseBtn { background-color: #ebf0f4; color: #57606a; border-color: #d0d7de; }
+                QPushButton#TerminalCloseBtn:hover { background-color: #cf222e; color: #ffffff; border-color: #cf222e; }
+                QPushButton#TerminalCloseBtn:pressed { background-color: #a40e26; }
+                
+                QTextEdit#TerminalText { color: #0550ae; }
+            """
+            
+        # 4. Merge them together and apply to the whole app!
+        # Your custom CSS overrides pyqtdarktheme because it comes last
+        final_stylesheet = base_theme_css + custom_base_css + custom_color_css
+        app.setStyleSheet(final_stylesheet)
