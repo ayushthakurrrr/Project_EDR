@@ -1,11 +1,27 @@
 import os
+import sys
 import yaml
+
 
 # =====================================================================
 # SIGMA ENGINE CONFIGURATION
 # =====================================================================
-SIGMA_RULES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules", "sigma")
-os.makedirs(SIGMA_RULES_DIR, exist_ok=True)
+
+# # ---> FIX: Universal path resolution for PyInstaller & Standalone <---
+# ---> THE ULTIMATE PYINSTALLER PATH RESOLVER <---
+if getattr(sys, 'frozen', False):
+    # 1. Check if PyInstaller bundled the rules inside the .exe (extracts to _MEIPASS)
+    if hasattr(sys, '_MEIPASS'):
+        BASE_DIR = sys._MEIPASS
+    else:
+        # 2. Check if Inno Setup copied the rules directly next to the .exe
+        BASE_DIR = os.path.dirname(sys.executable)
+else:
+    # 3. Running normally as a Python script in VS Code
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+SIGMA_RULES_DIR = os.path.join(BASE_DIR, "rules", "sigma")
+
 
 # OPTIMIZATION: Group rules by category in RAM for instant O(1) routing
 COMPILED_SIGMA_RULES = {

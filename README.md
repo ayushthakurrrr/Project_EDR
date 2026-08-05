@@ -96,7 +96,7 @@ pyinstaller --onefile --noconsole --name="EdrAgentGUI" --icon="assets/guard.ico"
 Build the backend daemon service executable:
 
 ```bash
-pyinstaller --onefile --name="EdrAgentSERVICE" .\BACKEND\backend_daemon.py
+pyinstaller --onefile --add-data "BACKEND\rules;rules" --name="EdrAgentSERVICE" .\BACKEND\backend_daemon.py   
 
 ```
 

@@ -2,6 +2,7 @@ import urllib.request
 import threading
 import time
 import os
+import sys
 import yara
 
 from sigma_engine import evaluate_against_sigma
@@ -16,7 +17,18 @@ HIGH_RISK_EXTENSIONS = (
     ".docm", ".xlsm", ".pptm", ".txt" # Added .txt just for testing our rule!
 )
 
-YARA_RULES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules", "yara")
+# # ---> FIX: Universal path resolution for PyInstaller & Standalone <---
+# ---> THE ULTIMATE PYINSTALLER PATH RESOLVER <---
+if getattr(sys, 'frozen', False):
+    if hasattr(sys, '_MEIPASS'):
+        BASE_DIR = sys._MEIPASS
+    else:
+        BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+YARA_RULES_DIR = os.path.join(BASE_DIR, "rules", "yara")
 os.makedirs(YARA_RULES_DIR, exist_ok=True)
 COMPILED_YARA_RULES = None
 
@@ -204,7 +216,7 @@ def evaluate_threat_locally(payload):
                 return payload
 
         
-        # Comenting out the suspicious PowerShell execution flags check for now, as it is covered by the Sigma rules and YARA engine. We can re-enable it later if needed.
+        # # Comenting out the suspicious PowerShell execution flags check for now, as it is covered by the Sigma rules and YARA engine. We can re-enable it later if needed.
         # # Suspicious PowerShell execution flags
         # if proc_name == "powershell.exe":
         #     if any(kw in cmd_line for kw in ("-enc", "hidden", "downloadstring", "bypass", "iwr")):

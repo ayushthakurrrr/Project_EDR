@@ -1,4 +1,4 @@
-## comment: This is a test Sigma rule to verify the functionality of the Sigma Engine and WMI timing. It detects the execution of notepad.exe, which is a common and benign process, but is used here for testing purposes.
+# # comment: This is a test Sigma rule to verify the functionality of the Sigma Engine and WMI timing. It detects the execution of notepad.exe, which is a common and benign process, but is used here for testing purposes.
 # title: Suspicious Notepad Execution
 # id: 99999-88888-77777
 # status: test
